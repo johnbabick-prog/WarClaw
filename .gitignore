@@ -181,18 +181,18 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
-
-# Accidentally committed venvs
-warclaw/#/
-warclaw/or/
+dist/
+build/
 
 # Model files (too large for git)
 *.gguf
+models/*.bin
 
 # Runtime data
-warclaw/mission_log.jsonl
-warclaw/generated_apps/*/
+mission_log.jsonl
+agents.json
+generated_apps/*/
 
 # Keep the directory structure
-!warclaw/generated_apps/.gitkeep
-!warclaw/models/.gitkeep
+!generated_apps/.gitkeep
+!models/.gitkeep
