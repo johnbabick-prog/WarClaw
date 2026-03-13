@@ -74,7 +74,7 @@ function renderRecommendations(recs) {
         <div class="rec-actions">
           <button class="btn btn-primary" style="font-size:10px;padding:3px 10px;"
             onclick="promptCreateAppFromRec(\`${r.replace(/`/g, '')}\`)">
-            ⚡ Generate This App
+            Generate This App
           </button>
         </div>
       </div>
@@ -83,7 +83,13 @@ function renderRecommendations(recs) {
 
   return `
     <div class="recommendations-section">
-      <div class="card-title">◈ AI INTEGRATION RECOMMENDATIONS</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div class="card-title">◈ AI INTEGRATION RECOMMENDATIONS</div>
+        <button class="btn btn-primary" style="font-size:11px;padding:5px 14px;" id="gen-all-recs-btn"
+          onclick="generateAllRecommended()">
+          Generate All Recommended
+        </button>
+      </div>
       ${items}
     </div>
   `;
@@ -133,6 +139,9 @@ async function runLanScan() {
       hostList.innerHTML = result.hosts.map(renderHostCard).join('');
       document.getElementById('lan-host-count').textContent = result.hosts_up;
     }
+
+    if (typeof updateLanBadge === 'function') updateLanBadge(result.hosts_up);
+    if (typeof syncLiveUi === 'function') syncLiveUi();
 
     // Recommendations
     document.getElementById('lan-recs').innerHTML = renderRecommendations(result.recommendations);

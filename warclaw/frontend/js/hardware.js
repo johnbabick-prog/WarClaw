@@ -22,7 +22,7 @@ async function loadHardwareView() {
       : '<span class="text-amber">None detected — CPU only</span>';
 
     hwPanel.innerHTML = `
-      <div class="card-title">SERVER HARDWARE</div>
+      <div class="card-title">Server Hardware</div>
       <div class="hw-info-row">
         <div class="hw-info-label">CPU</div>
         <div class="hw-info-value" style="font-size:11px;">${profile.cpu_model}</div>
@@ -56,7 +56,7 @@ async function loadHardwareView() {
     const currentModel = modelsData.current_model;
     const isReady = modelsData.model_ready;
 
-    let modelsHtml = `<div class="card-title">LOADED MODEL</div>`;
+    let modelsHtml = `<div class="card-title">Loaded Model</div>`;
     if (isReady) {
       const name = currentModel.split('/').pop();
       modelsHtml += `
@@ -70,14 +70,14 @@ async function loadHardwareView() {
       modelsHtml += `<div class="text-amber" style="font-size:11px;margin-bottom:12px;">No model loaded</div>`;
     }
 
-    modelsHtml += `<div class="card-title" style="margin-top:16px;">AVAILABLE MODELS</div>`;
+    modelsHtml += `<div class="card-title" style="margin-top:16px;">Available Models</div>`;
 
     if (modelsData.models.length === 0) {
       modelsHtml += `
         <div class="text-muted" style="font-size:11px;line-height:1.7;">
-          No .gguf files found in:<br>
-          <span class="mono" style="color:var(--accent-blue);">${modelsData.models_dir}</span><br><br>
-          Place GGUF model files in that directory, then click Refresh.
+          No .gguf files found yet.<br><br>
+          Models folder:<br>
+          <span class="mono" style="color:var(--text-primary);">${modelsData.models_dir}</span>
         </div>
       `;
     } else {
@@ -94,27 +94,28 @@ async function loadHardwareView() {
       `).join('');
     }
 
-    // Manual load form
     modelsHtml += `
-      <div style="margin-top:16px;">
-        <div class="card-title">MANUAL MODEL PATH</div>
-        <div class="form-group">
-          <input type="text" id="manual-model-path" placeholder="/path/to/model.gguf" />
+      <div style="margin-top:20px;padding-top:18px;border-top:1px solid rgba(0,0,0,0.08);">
+        <div class="card-title">Add Model From File Explorer</div>
+        <div class="text-muted" style="font-size:11px;line-height:1.7;margin-bottom:12px;">
+          Choose a local GGUF file. WarClaw will copy it into the models folder and can load it immediately.
         </div>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <div class="form-group" style="flex:1;margin:0;">
-            <label>GPU Layers (0=CPU only)</label>
-            <input type="number" id="manual-gpu-layers" value="${profile.recommended_gpu_layers}" min="0" max="200" />
-          </div>
+        <div id="hardware-model-status" class="hardware-status">No file selected yet.</div>
+        <input type="file" id="manual-model-file" accept=".gguf" style="display:none;" />
+        <div id="manual-model-selection" class="text-muted" style="font-size:11px;margin-bottom:10px;">No file selected</div>
+        <div class="form-group" style="margin-bottom:10px;">
+          <label>GPU Layers (0 = CPU only)</label>
+          <input type="number" id="manual-gpu-layers" value="${profile.recommended_gpu_layers}" min="0" max="200" />
         </div>
-        <button class="btn btn-primary" style="margin-top:10px;width:100%;"
-          onclick="loadManualModel()">
-          ⚡ LOAD MODEL
-        </button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" style="flex:1;" onclick="openModelPicker()">Choose GGUF File</button>
+          <button class="btn btn-primary" style="flex:1;" onclick="uploadAndLoadManualModel()">Upload & Load</button>
+        </div>
       </div>
     `;
 
     modelsPanel.innerHTML = modelsHtml;
+    bindModelPicker();
 
   } catch (e) {
     hwPanel.innerHTML = `<div class="text-red">Hardware detection failed: ${e.message}</div>`;
@@ -122,7 +123,15 @@ async function loadHardwareView() {
   }
 }
 
+function setHardwareStatus(message, type = 'info') {
+  const el = document.getElementById('hardware-model-status');
+  if (!el) return;
+  el.className = `hardware-status ${type}`;
+  el.textContent = message;
+}
+
 async function loadModel(path, gpuLayers) {
+  setHardwareStatus(`Loading ${path.split('/').pop()}...`, 'info');
   toast(`Loading model — this may take 30-60 seconds...`, 'info', 30000);
   try {
     const result = await API.post('/api/hardware/models/load', {
@@ -130,19 +139,69 @@ async function loadModel(path, gpuLayers) {
       n_gpu_layers: gpuLayers || 0,
     });
     toast(`Model loaded: ${path.split('/').pop()}`, 'success');
+    setHardwareStatus(`Loaded ${path.split('/').pop()} successfully.`, 'success');
     State.modelReady = true;
     await loadHardwareView();
     await pollStatus();
   } catch (e) {
+    setHardwareStatus(`Load failed: ${e.message}`, 'error');
     toast('Model load failed: ' + e.message, 'error');
   }
 }
 
-async function loadManualModel() {
-  const path = document.getElementById('manual-model-path').value.trim();
+function openModelPicker() {
+  document.getElementById('manual-model-file')?.click();
+}
+
+function bindModelPicker() {
+  const input = document.getElementById('manual-model-file');
+  if (!input) return;
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    const label = document.getElementById('manual-model-selection');
+    if (label) {
+      label.textContent = file ? `${file.name} selected` : 'No file selected';
+    }
+    if (file) setHardwareStatus(`Selected ${file.name}. Click "Upload & Load" to continue.`, 'info');
+  });
+}
+
+async function uploadAndLoadManualModel() {
+  const file = document.getElementById('manual-model-file').files?.[0];
   const gpuLayers = parseInt(document.getElementById('manual-gpu-layers').value) || 0;
-  if (!path) { toast('Enter a model path', 'error'); return; }
-  await loadModel(path, gpuLayers);
+  if (!file) {
+    setHardwareStatus('Choose a GGUF file first.', 'error');
+    toast('Choose a GGUF file first', 'error');
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  setHardwareStatus(`Uploading ${file.name}...`, 'info');
+  toast('Uploading model file...', 'info', 30000);
+  try {
+    const response = await fetch(`${API.base}/api/hardware/models/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || 'Upload failed');
+    toast(`Uploaded ${result.name}`, 'success');
+    setHardwareStatus(`Upload complete. Verifying ${result.name} in models directory...`, 'success');
+
+    const modelsData = await API.get('/api/hardware/models');
+    const uploadedModel = (modelsData.models || []).find(m => m.path === result.path || m.name === result.name);
+    if (!uploadedModel) {
+      throw new Error('Upload finished, but the model was not found in the models directory afterward');
+    }
+
+    setHardwareStatus(`Found ${uploadedModel.name}. Starting model load...`, 'info');
+    await loadModel(uploadedModel.path, gpuLayers);
+  } catch (e) {
+    setHardwareStatus(`Upload failed: ${e.message}`, 'error');
+    toast('Model upload failed: ' + e.message, 'error');
+  }
 }
 
 function initHardware() {

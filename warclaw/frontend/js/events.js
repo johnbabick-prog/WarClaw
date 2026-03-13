@@ -130,23 +130,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Clear badge when user opens the events view
-const _origShowView = typeof showView !== 'undefined' ? showView : null;
-if (typeof showView !== 'undefined') {
-  const _patchedShowView = showView;
-  window.addEventListener('viewchange', (e) => {
-    if (e.detail === 'events') {
-      const badge = document.getElementById('events-badge');
-      if (badge) badge.style.display = 'none';
-    }
-  });
-}
-
-// Patch nav items to fire viewchange event
-document.querySelectorAll('.nav-item[data-view]').forEach(item => {
-  item.addEventListener('click', () => {
-    window.dispatchEvent(new CustomEvent('viewchange', { detail: item.dataset.view }));
-  });
+window.addEventListener('viewchange', (e) => {
+  if (e.detail === 'events') {
+    const badge = document.getElementById('events-badge');
+    if (badge) badge.style.display = 'none';
+  }
 });
 
 // ── Start SSE connection ──────────────────────────────────────────

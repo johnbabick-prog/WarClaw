@@ -2,6 +2,8 @@
 App Factory endpoints — generate, list, view, and delete AI-created apps.
 """
 import logging
+import json
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
@@ -61,6 +63,18 @@ def serve_app_ui(slug: str):
     """Serve the generated app's frontend HTML."""
     html = get_app_frontend(slug)
     if html is None:
+        manifest_path = Path(__file__).resolve().parents[2] / "generated_apps" / slug / "manifest.json"
+        if manifest_path.exists():
+          try:
+              manifest = json.loads(manifest_path.read_text())
+              detail = "App frontend not found"
+              if manifest.get("status") == "partial":
+                  detail = f"App generation is partial: {', '.join(manifest.get('errors', []))}"
+              raise HTTPException(status_code=404, detail=detail)
+          except HTTPException:
+              raise
+          except Exception:
+              pass
         raise HTTPException(status_code=404, detail="App frontend not found")
     return HTMLResponse(content=html)
 

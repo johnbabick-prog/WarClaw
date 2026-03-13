@@ -34,8 +34,16 @@ WORKERS="${WARCLAW_WORKERS:-1}"
 LOG_LEVEL="${WARCLAW_LOG:-info}"
 MODEL="${WARCLAW_MODEL:-}"
 
-# ── Detect LAN IP for display ────────────────────────────────────
-LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+# ── Detect LAN IP for display (works on macOS + Linux) ───────────
+if command -v hostname &>/dev/null && hostname -I &>/dev/null; then
+  LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+elif command -v ipconfig &>/dev/null; then
+  # macOS
+  LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "localhost")
+else
+  LAN_IP="localhost"
+fi
+[ -z "$LAN_IP" ] && LAN_IP="localhost"
 
 # ── Banner ───────────────────────────────────────────────────────
 echo -e "${CYAN}"
@@ -51,7 +59,7 @@ echo -e "  ${BLUE}Interface:${NC}   ${HOST}:${PORT}"
 if [ -n "$MODEL" ]; then
   echo -e "  ${GREEN}Model:${NC}       ${MODEL}"
 else
-  echo -e "  ${YELLOW}Model:${NC}       Not set — load via Hardware tab in UI"
+  echo -e "  ${GREEN}Model:${NC}       Auto-detecting from models/ directory"
 fi
 if [ -n "${WARCLAW_API_KEY:-}" ]; then
   echo -e "  ${GREEN}API Key:${NC}     set — pass as X-API-Key header"

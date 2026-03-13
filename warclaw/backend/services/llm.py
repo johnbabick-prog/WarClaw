@@ -7,6 +7,7 @@ It exposes synchronous and async streaming chat completions.
 import asyncio
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import AsyncIterator, Iterator, Optional
 
@@ -61,6 +62,7 @@ class LLMService:
         self._llm = None
         self._model_path: Optional[str] = None
         self._ready = False
+        self._lock = threading.Lock()
 
     @property
     def ready(self) -> bool:
@@ -110,23 +112,24 @@ class LLMService:
 
     def stream_chat(self, history: list[dict], user_message: str,
                     max_tokens: int = 2048, temperature: float = 0.7) -> Iterator[str]:
-        """Synchronous streaming generator — yields token strings."""
+        """Synchronous streaming generator — yields token strings. Thread-safe via lock."""
         if not self._ready or self._llm is None:
             yield "[WarClaw] No model loaded. Please load a GGUF model first."
             return
 
         messages = self._build_messages(history, user_message)
-        stream = self._llm.create_chat_completion(
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            stream=True,
-        )
-        for chunk in stream:
-            delta = chunk["choices"][0]["delta"]
-            token = delta.get("content", "")
-            if token:
-                yield token
+        with self._lock:
+            stream = self._llm.create_chat_completion(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk["choices"][0]["delta"]
+                token = delta.get("content", "")
+                if token:
+                    yield token
 
     async def astream_chat(self, history: list[dict], user_message: str,
                            max_tokens: int = 2048, temperature: float = 0.7) -> AsyncIterator[str]:

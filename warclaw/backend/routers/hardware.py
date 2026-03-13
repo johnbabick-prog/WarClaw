@@ -1,7 +1,6 @@
 """Hardware detection and model management endpoints."""
-import os
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from ..services.hardware import detect_hardware
@@ -47,6 +46,10 @@ class LoadModelRequest(BaseModel):
     n_threads: int = DEFAULT_THREADS
     n_gpu_layers: int = 0
 
+    model_config = {
+        "protected_namespaces": (),
+    }
+
 
 @router.post("/models/load")
 def load_model(req: LoadModelRequest):
@@ -63,3 +66,28 @@ def load_model(req: LoadModelRequest):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/models/upload")
+async def upload_model(file: UploadFile = File(...)):
+    """Upload a GGUF file into the local models directory."""
+    name = Path(file.filename or "").name
+    if not name.lower().endswith(".gguf"):
+        raise HTTPException(status_code=400, detail="Only .gguf files are supported")
+
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    dest = MODELS_DIR / name
+    try:
+        with dest.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                out.write(chunk)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
+    finally:
+        await file.close()
+
+    return {
+        "status": "uploaded",
+        "name": name,
+        "path": str(dest),
+    }

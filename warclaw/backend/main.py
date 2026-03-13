@@ -18,7 +18,7 @@ from .config import (
     FRONTEND_DIR, GENERATED_APPS_DIR, MODELS_DIR,
     HOST, PORT, API_KEY
 )
-from .routers import chat, lan, apps, hardware, events, agents
+from .routers import chat, lan, apps, hardware, events, agents, traffic
 
 _START_TIME = time.time()
 
@@ -68,6 +68,7 @@ app.include_router(apps.router)
 app.include_router(hardware.router)
 app.include_router(events.router)
 app.include_router(agents.router)
+app.include_router(traffic.router)
 
 
 # ── Static frontend ──────────────────────────────────────────────────────────
@@ -129,26 +130,39 @@ async def on_startup():
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     GENERATED_APPS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Auto-load model if WARCLAW_MODEL env var is set
-    model_env = os.getenv("WARCLAW_MODEL", "")
-    if model_env and Path(model_env).exists():
-        from .services.llm import llm_service
-        from .services.hardware import detect_hardware
-        from .config import DEFAULT_CONTEXT_LENGTH, DEFAULT_THREADS
-        hw = detect_hardware()
-        log.info("Auto-loading model: %s", model_env)
+    # Auto-load model: env var first, then auto-detect from models/ directory
+    from .services.llm import llm_service
+    from .services.hardware import detect_hardware
+    from .config import DEFAULT_CONTEXT_LENGTH, DEFAULT_THREADS
+    hw = detect_hardware()
+
+    model_path = os.getenv("WARCLAW_MODEL", "")
+
+    # If no env var, auto-detect: find the largest .gguf in models/ (follows symlinks)
+    if not model_path or not Path(model_path).exists():
+        gguf_files = sorted(
+            MODELS_DIR.glob("**/*.gguf"),
+            key=lambda f: f.stat().st_size,
+            reverse=True,
+        )
+        if gguf_files:
+            model_path = str(gguf_files[0])
+            log.info("Auto-detected model: %s", model_path)
+
+    if model_path and Path(model_path).exists():
+        log.info("Loading model: %s", model_path)
         try:
             llm_service.load(
-                model_path=model_env,
+                model_path=model_path,
                 n_ctx=DEFAULT_CONTEXT_LENGTH,
                 n_threads=DEFAULT_THREADS,
                 n_gpu_layers=hw.recommended_gpu_layers,
             )
+            log.info("AI model loaded and ready")
         except Exception as e:
-            log.error("Auto-load failed: %s", e)
+            log.error("Model load failed: %s", e)
     else:
-        log.info("No model auto-loaded. Use /api/hardware/models/load to load a GGUF model.")
-        log.info("Place .gguf files in: %s", MODELS_DIR)
+        log.info("No model found. Place .gguf files in: %s", MODELS_DIR)
 
     log.info("WarClaw ready at http://%s:%d", HOST, PORT)
 

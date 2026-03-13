@@ -172,3 +172,27 @@ tags
 .history
 
 # End of https://www.toptal.com/developers/gitignore/api/node,macos,visualstudiocode,vim
+
+### Python / WarClaw ###
+# Virtual environments (anywhere in tree)
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Accidentally committed venvs
+warclaw/#/
+warclaw/or/
+
+# Model files (too large for git)
+*.gguf
+
+# Runtime data
+warclaw/mission_log.jsonl
+warclaw/generated_apps/*/
+
+# Keep the directory structure
+!warclaw/generated_apps/.gitkeep
+!warclaw/models/.gitkeep

@@ -11,6 +11,7 @@ async function loadAppList() {
     const data = await API.get('/api/apps/');
     State.generatedApps = data.apps;
     document.getElementById('stat-apps').textContent = data.apps.length;
+    if (typeof syncLiveUi === 'function') syncLiveUi();
 
     if (!data.apps.length) {
       panel.innerHTML = `
@@ -33,9 +34,15 @@ async function loadAppList() {
             ${new Date(app.created_at * 1000).toLocaleDateString()}
             ${app.generation_time_s ? `&nbsp;·&nbsp; generated in ${app.generation_time_s}s` : ''}
           </div>
+          ${app.status !== 'success' ? `
+            <div class="text-amber" style="font-size:11px;margin-top:6px;">
+              Partial generation: ${(app.errors || []).join(', ')}
+            </div>
+          ` : ''}
         </div>
         <div class="app-actions">
-          <button class="btn btn-primary" onclick="launchApp('${app.slug}')">▶ Open</button>
+          <button class="btn btn-primary" ${app.has_frontend ? '' : 'disabled'}
+            onclick="launchApp('${app.slug}', ${app.has_frontend ? 'true' : 'false'})">▶ Open</button>
           <button class="btn btn-danger" onclick="deleteApp('${app.slug}')">✕</button>
         </div>
       </div>
@@ -109,7 +116,11 @@ async function generateApp() {
   }
 }
 
-function launchApp(slug) {
+function launchApp(slug, hasFrontend = true) {
+  if (!hasFrontend) {
+    toast('This app was only partially generated and has no frontend to open yet.', 'error');
+    return;
+  }
   const url = `/api/apps/${slug}/ui`;
   window.open(url, '_blank', 'noopener');
 }
@@ -172,6 +183,65 @@ function initApps() {
   });
 
   loadAppList();
+}
+
+/**
+ * Generate all recommended apps from LAN scan results with one click.
+ */
+async function generateAllRecommended() {
+  if (!State.modelReady) {
+    toast('No AI model loaded. Wait for model to finish loading.', 'error');
+    return;
+  }
+
+  const recs = State.lanScanResult?.recommendations || [];
+  if (!recs.length) {
+    toast('No recommendations available. Run a LAN scan first.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('gen-all-recs-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Generating...';
+  }
+
+  toast(`Generating ${recs.length} recommended app(s)... This will take a few minutes.`, 'info', 8000);
+
+  let success = 0;
+  let failed = 0;
+
+  // Build context from scan results
+  const context = (State.lanScanResult?.hosts || []).map(h =>
+    `${h.ip} (${(h.services || []).map(s => `${s.port}/${s.protocol}`).join(', ')})`
+  ).join('; ');
+
+  // Generate each app sequentially (LLM can only handle one at a time)
+  for (const rec of recs) {
+    const name = rec.split('—')[0].replace(/Create a/i, '').replace(/create a/i, '').trim().slice(0, 40) || 'Ship App';
+    try {
+      await API.post('/api/apps/generate', {
+        name: name,
+        description: rec,
+        context: context,
+      });
+      success++;
+      toast(`Generated: ${name}`, 'success');
+    } catch (e) {
+      failed++;
+      toast(`Failed: ${name} — ${e.message}`, 'error');
+    }
+  }
+
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = 'Generate All Recommended';
+  }
+
+  toast(`Done! ${success} app(s) generated, ${failed} failed.`, success > 0 ? 'success' : 'error', 6000);
+
+  // Refresh the apps list
+  await loadAppList();
 }
 
 document.addEventListener('DOMContentLoaded', initApps);

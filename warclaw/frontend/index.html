@@ -13,16 +13,17 @@
   <!-- ══ HEADER ══════════════════════════════════════════════════ -->
   <header id="header">
     <div class="logo-mark">
-      <!-- EdgeRunner AI wordmark -->
-      <img src="/static/img/logo.svg" alt="EdgeRunner AI" style="height:34px;width:auto;filter:drop-shadow(0 0 8px rgba(232,64,28,0.5));" />
-      <div class="header-divider" style="margin-left:6px;"></div>
+      <img src="/static/img/er-icon.png" alt="EdgeRunner icon" class="brand-mark" />
       <div class="logo-text">
         <div class="logo-name">WARCLAW</div>
-        <div class="logo-brand">Autonomous Intelligence for Maritime Systems</div>
+        <div class="logo-brand">EdgeRunner AI local operations console</div>
       </div>
     </div>
 
-    <div class="header-divider"></div>
+    <div class="header-presence">
+      <span class="presence-label">Mission Mode</span>
+      <span class="presence-value" id="presence-value">AI Advisor Standing By</span>
+    </div>
 
     <div id="header-status">
       <div class="status-pill clickable" id="ai-model-pill" onclick="showView('hardware')" title="Click to manage AI model">
@@ -42,9 +43,9 @@
   <!-- ══ NO-MODEL BANNER ══════════════════════════════════════════ -->
   <div id="setup-banner">
     <span class="setup-banner-icon">⚡</span>
-    <strong style="margin-right:4px;">Step 1 of 1:</strong>
-    <span>No AI model loaded — AI Assistant, App Factory, and smart agent recommendations are offline until you load a GGUF model.</span>
-    <button class="setup-banner-btn" onclick="showView('hardware')">⚙ Load AI Model →</button>
+    <strong style="margin-right:4px;">AI Loading:</strong>
+    <span>The AI model is loading automatically. AI Assistant, App Factory, and recommendations will be available shortly.</span>
+    <button class="setup-banner-btn" onclick="showView('hardware')">⚙ Check Status →</button>
   </div>
 
   <!-- ══ SIDEBAR ═════════════════════════════════════════════════ -->
@@ -75,10 +76,16 @@
       <span class="nav-badge" id="agents-running-badge" style="display:none;">0</span>
     </div>
 
+    <div class="nav-item" data-view="traffic">
+      <span class="nav-icon">⬡</span>
+      <span>Traffic Monitor</span>
+      <span class="nav-badge" id="traffic-badge" style="display:none;">0</span>
+    </div>
+
     <div class="nav-section-label">Operations</div>
 
     <div class="nav-item" data-view="apps">
-      <span class="nav-icon">⬡</span>
+      <span class="nav-icon">⬢</span>
       <span>App Factory</span>
     </div>
 
@@ -91,6 +98,11 @@
       <span class="nav-icon">◎</span>
       <span>Mission Log</span>
       <span class="nav-badge" id="events-badge" style="display:none;">0</span>
+    </div>
+
+    <div class="nav-item" data-view="help">
+      <span class="nav-icon">?</span>
+      <span>Help</span>
     </div>
 
     <div id="sidebar-footer">
@@ -110,10 +122,43 @@
       <div class="view-header">
         <span class="nav-icon">▣</span>
         <span class="view-title">Dashboard</span>
-        <span class="view-subtitle">Autonomous Intelligence for Maritime Systems</span>
+        <span class="view-subtitle">Simple local AI workspace for discovery, recommendations, and app generation</span>
       </div>
 
       <div class="dashboard-grid">
+        <div class="card start-card" style="grid-column: 1 / -1;">
+          <div class="start-card-header">
+            <div>
+              <div class="card-title">Welcome to WarClaw</div>
+              <div class="start-card-title">Your AI-powered ship operations console. Scan the LAN, then let WarClaw do the rest.</div>
+              <div class="start-card-subtitle">WarClaw automatically loads the AI model on startup. Follow the steps below to get started.</div>
+            </div>
+            <button class="btn btn-primary" onclick="showView('lan'); runLanScan()">Scan Ship LAN</button>
+          </div>
+          <div class="start-steps">
+            <div class="start-step">
+              <div class="start-step-num">1</div>
+              <div>
+                <div class="start-step-title">Scan your network</div>
+                <div class="start-step-copy">Click <strong onclick="showView('lan'); runLanScan()" style="cursor:pointer;">Scan Ship LAN</strong> to discover all systems, sensors, and equipment on this network.</div>
+              </div>
+            </div>
+            <div class="start-step">
+              <div class="start-step-num">2</div>
+              <div>
+                <div class="start-step-title">Monitor traffic</div>
+                <div class="start-step-copy">Open <strong onclick="showView('traffic')" style="cursor:pointer;">Traffic Monitor</strong> to see what data is flowing on the LAN in real time.</div>
+              </div>
+            </div>
+            <div class="start-step">
+              <div class="start-step-num">3</div>
+              <div>
+                <div class="start-step-title">Generate apps</div>
+                <div class="start-step-copy">WarClaw recommends apps based on what it finds. Click <strong>Generate All Recommended</strong> to create them automatically.</div>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <div class="stat-card">
           <div class="stat-label">AI Model</div>
@@ -168,38 +213,11 @@
           <div class="card-title">Quick Actions</div>
           <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">
             <button class="btn btn-primary" onclick="showView('lan'); runLanScan()">⊕ Scan Ship LAN</button>
+            <button class="btn btn-primary" onclick="showView('traffic'); startTrafficCapture()">⬡ Monitor Traffic</button>
             <button class="btn btn-primary" onclick="showView('agents'); autoRecommend()">◉ Auto-Deploy Agents</button>
             <button class="btn" onclick="showView('chat')">◈ Open AI Assistant</button>
-            <button class="btn" onclick="showView('apps')">⬡ Build an App</button>
-            <button class="btn" onclick="showView('hardware')">⚙ Manage AI Model</button>
-          </div>
-        </div>
-
-        <!-- Getting Started -->
-        <div class="card" style="grid-column: 1 / -1;">
-          <div class="card-title">Getting Started</div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-top:8px;">
-            <div style="display:flex;gap:12px;align-items:flex-start;">
-              <div style="width:28px;height:28px;border-radius:50%;background:rgba(232,64,28,0.15);border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--accent);flex-shrink:0;">1</div>
-              <div>
-                <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:3px;">Load an AI Model</div>
-                <div style="font-size:11px;color:var(--text-muted);line-height:1.6;">Go to <strong style="color:var(--text-secondary);cursor:pointer;" onclick="showView('hardware')">Hardware / Model</strong> and load a GGUF file to activate AI features.</div>
-              </div>
-            </div>
-            <div style="display:flex;gap:12px;align-items:flex-start;">
-              <div style="width:28px;height:28px;border-radius:50%;background:rgba(232,64,28,0.08);border:1px solid var(--border-bright);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--text-muted);flex-shrink:0;">2</div>
-              <div>
-                <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:3px;">Scan the Ship's LAN</div>
-                <div style="font-size:11px;color:var(--text-muted);line-height:1.6;">Use <strong style="color:var(--text-secondary);cursor:pointer;" onclick="showView('lan');runLanScan()">LAN Monitor</strong> to discover NMEA, MODBUS, and HTTP devices on this network.</div>
-              </div>
-            </div>
-            <div style="display:flex;gap:12px;align-items:flex-start;">
-              <div style="width:28px;height:28px;border-radius:50%;background:rgba(232,64,28,0.08);border:1px solid var(--border-bright);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--text-muted);flex-shrink:0;">3</div>
-              <div>
-                <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:3px;">Deploy Agents &amp; Build Apps</div>
-                <div style="font-size:11px;color:var(--text-muted);line-height:1.6;">Auto-deploy monitoring <strong style="color:var(--text-secondary);cursor:pointer;" onclick="showView('agents')">Agents</strong>, then use <strong style="color:var(--text-secondary);cursor:pointer;" onclick="showView('apps')">App Factory</strong> to generate ship dashboards with AI.</div>
-              </div>
-            </div>
+            <button class="btn" onclick="showView('apps')">⬢ Build an App</button>
+            <button class="btn" onclick="showView('help')">? Help</button>
           </div>
         </div>
 
@@ -230,22 +248,39 @@
         </div>
       </div>
 
-      <div class="chat-hints" style="padding:8px 24px 0;"></div>
+      <div class="view-help-bar">
+        <span class="help-icon">?</span>
+        <span>Type a question or command in the box below and press Enter. The AI understands ship systems, navigation data, and can generate apps for you. Try: "What systems are on the LAN?" or "Create a dashboard for navigation data".</span>
+      </div>
+      <div class="assistant-shell">
+        <section class="assistant-stage">
+          <div class="assistant-note">
+            <span>Ask about discovered systems, generated apps, agent recommendations, or what to build next.</span>
+            <div class="assistant-inline-stats">
+              <span class="assistant-inline-pill">Core <strong id="assistant-core-status">Offline</strong></span>
+              <span class="assistant-inline-pill">LAN <strong id="assistant-lan-summary">No scan yet</strong></span>
+              <span class="assistant-inline-pill">Apps <strong id="assistant-app-summary">0 generated</strong></span>
+            </div>
+          </div>
 
-      <div id="chat-messages"></div>
+          <div class="chat-hints"></div>
 
-      <div id="chat-input-area">
-        <div class="chat-input-row">
-          <textarea
-            id="chat-input"
-            placeholder="Ask about ship systems, NMEA data, MODBUS registers, or ask to build an app..."
-            rows="2"
-          ></textarea>
-          <button class="btn btn-primary" id="chat-send-btn" style="height:44px;padding:0 20px;font-size:13px;">
-            ▶ SEND
-          </button>
-        </div>
-        <div class="text-muted" style="margin-top:6px;">Shift+Enter for new line &nbsp;·&nbsp; Enter to send</div>
+          <div id="chat-messages"></div>
+
+          <div id="chat-input-area">
+            <div class="chat-input-row">
+              <textarea
+                id="chat-input"
+                placeholder="Ask about ship systems, NMEA data, MODBUS registers, or ask to build an app..."
+                rows="2"
+              ></textarea>
+              <button class="btn btn-primary" id="chat-send-btn">
+                ▶ SEND
+              </button>
+            </div>
+            <div class="text-muted" style="margin-top:6px;">Shift+Enter for new line · Enter to send</div>
+          </div>
+        </section>
       </div>
     </div>
 
@@ -263,6 +298,10 @@
         </div>
       </div>
 
+      <div class="view-help-bar">
+        <span class="help-icon">?</span>
+        <span>Click <strong>Scan LAN</strong> to discover all devices on this network. After scanning, click <strong>Generate All Recommended</strong> to automatically create apps for the discovered systems. You can also click <strong>Stream</strong> on any NMEA device to see live navigation data.</span>
+      </div>
       <div style="flex:1;display:grid;grid-template-columns:1fr 300px;overflow:hidden;">
 
         <div style="overflow-y:auto;display:flex;flex-direction:column;">
@@ -314,6 +353,10 @@
         <span class="view-subtitle">Describe a ship app — AI generates it in seconds</span>
       </div>
 
+      <div class="view-help-bar">
+        <span class="help-icon">?</span>
+        <span>Describe any app you need in the form on the left. Give it a name and describe what it should do. The AI will generate a working web application in 1-3 minutes. Use the <strong>Quick Templates</strong> at the bottom for common ship applications.</span>
+      </div>
       <div style="flex:1;display:grid;grid-template-columns:340px 1fr;overflow:hidden;">
 
         <div id="app-create-panel">
@@ -429,6 +472,199 @@
       </div>
     </div>
 
+    <!-- ── TRAFFIC MONITOR ───────────────────────────────────────── -->
+    <div class="view" id="view-traffic">
+      <div class="view-header">
+        <span class="nav-icon">⬡</span>
+        <span class="view-title">Traffic Monitor</span>
+        <span class="view-subtitle">See what data is flowing on this LAN in real time</span>
+        <div class="view-actions">
+          <button class="btn btn-primary" id="traffic-start-btn" onclick="startTrafficCapture()">▶ Start Capture</button>
+          <button class="btn btn-danger" id="traffic-stop-btn" onclick="stopTrafficCapture()" style="display:none;">■ Stop</button>
+          <button class="btn" id="traffic-analyze-btn" onclick="analyzeTraffic()">◈ AI Analysis</button>
+        </div>
+      </div>
+
+      <div style="flex:1;display:grid;grid-template-columns:1fr 360px;overflow:hidden;">
+
+        <!-- Left: Live Traffic Feed -->
+        <div style="overflow-y:auto;display:flex;flex-direction:column;">
+          <div id="traffic-stats-bar" style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:20px;font-size:11px;color:var(--text-muted);">
+            <span>Status: <strong id="traffic-status" style="color:var(--text-secondary);">STOPPED</strong></span>
+            <span>Packets: <strong id="traffic-pkt-count">0</strong></span>
+            <span>Bytes: <strong id="traffic-byte-count">0</strong></span>
+            <span>Conversations: <strong id="traffic-conv-count">0</strong></span>
+          </div>
+
+          <div id="traffic-feed" style="flex:1;overflow-y:auto;padding:8px 16px;font-family:var(--font-mono);font-size:11px;">
+            <div class="empty-state" id="traffic-empty">
+              <div class="empty-icon">⬡</div>
+              <div class="empty-title">Traffic Monitor</div>
+              <div class="empty-sub">Click <strong>Start Capture</strong> to begin monitoring LAN traffic. WarClaw will show you what systems are communicating, what data is flowing, and decode it into human-readable format.</div>
+              <button class="btn btn-primary" style="margin-top:12px;padding:8px 20px;" onclick="startTrafficCapture()">▶ Start Capture</button>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:8px;">May require elevated privileges for full packet capture</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Conversations Sidebar -->
+        <div id="traffic-sidebar" style="border-left:1px solid var(--border);background:var(--bg-secondary);overflow-y:auto;display:flex;flex-direction:column;">
+          <div style="padding:16px;border-bottom:1px solid var(--border);">
+            <div class="card-title">Who's Talking to Who</div>
+            <div class="text-muted" style="font-size:11px;margin-top:4px;">Active conversations on this LAN</div>
+          </div>
+          <div id="traffic-conversations" style="flex:1;overflow-y:auto;padding:8px;">
+            <div class="text-muted" style="font-size:11px;padding:16px;text-align:center;">Start capture to see conversations</div>
+          </div>
+          <div id="traffic-ai-panel" style="border-top:1px solid var(--border);padding:16px;display:none;">
+            <div class="card-title">AI Analysis</div>
+            <div id="traffic-ai-result" style="font-size:12px;line-height:1.7;color:var(--text-secondary);margin-top:8px;max-height:300px;overflow-y:auto;"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── HELP ──────────────────────────────────────────────────── -->
+    <div class="view" id="view-help">
+      <div class="view-header">
+        <span class="nav-icon">?</span>
+        <span class="view-title">Help &amp; User Guide</span>
+        <span class="view-subtitle">Everything you need to know about WarClaw</span>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:24px 32px;max-width:900px;">
+
+        <div class="help-section">
+          <h2 class="help-h2">What is WarClaw?</h2>
+          <p class="help-p">WarClaw is your ship's AI-powered operations console. It runs 100% locally on this server — no internet connection needed. It can discover every system on the ship's network, monitor data traffic, and create custom applications to help the crew work more effectively.</p>
+        </div>
+
+        <div class="help-section">
+          <h2 class="help-h2">Getting Started</h2>
+          <div class="help-steps">
+            <div class="help-step">
+              <div class="help-step-num">1</div>
+              <div>
+                <strong>Scan the Ship LAN</strong>
+                <p class="help-p">Go to <strong>LAN Monitor</strong> and click <strong>Scan LAN</strong>. WarClaw will find all connected systems — navigation equipment, sensors, bridge systems, and more. This usually takes 10-30 seconds.</p>
+              </div>
+            </div>
+            <div class="help-step">
+              <div class="help-step-num">2</div>
+              <div>
+                <strong>Monitor Traffic</strong>
+                <p class="help-p">Go to <strong>Traffic Monitor</strong> and click <strong>Start Capture</strong>. You'll see live data flowing between systems in human-readable format. Click <strong>AI Analysis</strong> to get a plain-English summary of what's happening.</p>
+              </div>
+            </div>
+            <div class="help-step">
+              <div class="help-step-num">3</div>
+              <div>
+                <strong>Generate Apps</strong>
+                <p class="help-p">After scanning, WarClaw recommends apps based on what it found. Click <strong>Generate All Recommended</strong> in the LAN Monitor to create them all at once, or go to <strong>App Factory</strong> to build custom apps by describing what you need.</p>
+              </div>
+            </div>
+            <div class="help-step">
+              <div class="help-step-num">4</div>
+              <div>
+                <strong>Talk to the AI Assistant</strong>
+                <p class="help-p">Open <strong>AI Assistant</strong> and ask questions in plain English. Examples: "What systems are on the LAN?", "Create a navigation dashboard", "Explain the NMEA data from 192.168.1.10".</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="help-section">
+          <h2 class="help-h2">Feature Guide</h2>
+
+          <div class="help-feature">
+            <h3 class="help-h3">▣ Dashboard</h3>
+            <p class="help-p">Your home screen. Shows system status at a glance — whether the AI is online, how many hosts are on the LAN, active agents, generated apps, and system resources. Use the Quick Actions buttons to jump to common tasks.</p>
+          </div>
+
+          <div class="help-feature">
+            <h3 class="help-h3">◈ AI Assistant</h3>
+            <p class="help-p">A chat interface where you can ask the AI anything about your ship's systems. It understands NMEA navigation data, MODBUS sensor readings, IEC 61162 bridge protocols, and more. You can ask it to explain data, recommend integrations, or generate apps.</p>
+            <p class="help-p"><strong>Tips:</strong> Click the suggestion chips above the chat to try common questions. The AI remembers your conversation, so you can ask follow-up questions.</p>
+          </div>
+
+          <div class="help-feature">
+            <h3 class="help-h3">⊕ LAN Monitor</h3>
+            <p class="help-p">Scans the ship's network to find every connected device. For each device, it shows open ports, detected protocols (NMEA, MODBUS, HTTP), and what the device likely is. You can click <strong>Stream</strong> on NMEA devices to see live navigation data, or <strong>MODBUS</strong> to probe sensor registers.</p>
+            <p class="help-p">After scanning, WarClaw shows <strong>AI Recommendations</strong> — suggested apps you can generate with one click.</p>
+          </div>
+
+          <div class="help-feature">
+            <h3 class="help-h3">⬡ Traffic Monitor</h3>
+            <p class="help-p">Shows live data flowing between devices on the LAN. You'll see which systems are communicating, what protocol they're using, and the actual data being sent — decoded into human-readable format. Click <strong>AI Analysis</strong> to get a plain-English summary and app recommendations based on the traffic.</p>
+          </div>
+
+          <div class="help-feature">
+            <h3 class="help-h3">◉ Agents</h3>
+            <p class="help-p">Agents are automated monitors that run 24/7 watching ship systems. They track navigation data, engineering sensors, weather, and network activity — and alert you when something unusual happens (like losing GPS signal or a sudden depth change). Click <strong>Auto-Recommend</strong> to get agent suggestions based on your LAN scan.</p>
+          </div>
+
+          <div class="help-feature">
+            <h3 class="help-h3">⬢ App Factory</h3>
+            <p class="help-p">Describe any app you need in plain English, and the AI builds it for you. The app becomes a live web page accessible from any device on the ship's LAN. Example: "Show live GPS position and heading on a map" or "Display engine room temperature and pressure gauges".</p>
+          </div>
+
+          <div class="help-feature">
+            <h3 class="help-h3">⚙ Hardware / Model</h3>
+            <p class="help-p">Shows this server's hardware capabilities (CPU, RAM, GPU) and lets you manage the AI model. WarClaw automatically loads a model on startup, but you can switch models here if needed.</p>
+          </div>
+
+          <div class="help-feature">
+            <h3 class="help-h3">◎ Mission Log</h3>
+            <p class="help-p">A live timeline of everything WarClaw does — scans, agent alerts, app generation, system events. Useful for keeping a record of operations. You can export the log as a file for post-voyage analysis.</p>
+          </div>
+        </div>
+
+        <div class="help-section">
+          <h2 class="help-h2">Common Questions</h2>
+
+          <div class="help-faq">
+            <strong>Does WarClaw need internet?</strong>
+            <p class="help-p">No. Everything runs locally on this server. No data ever leaves the ship's network.</p>
+          </div>
+
+          <div class="help-faq">
+            <strong>What does "AI Model" mean?</strong>
+            <p class="help-p">The AI model is the brain that powers the chat assistant and app generation. It's a file stored on this server. WarClaw loads it automatically on startup.</p>
+          </div>
+
+          <div class="help-faq">
+            <strong>What if the AI gives a wrong answer?</strong>
+            <p class="help-p">The AI is a tool, not an authority. Always verify critical information against your ship's instruments and standard procedures. The AI is best used for quickly understanding data patterns, building dashboards, and getting recommendations.</p>
+          </div>
+
+          <div class="help-faq">
+            <strong>Can I access WarClaw from other computers on the ship?</strong>
+            <p class="help-p">Yes. Open a web browser on any computer connected to the ship's LAN and go to this server's address on port 7070 (shown in the header).</p>
+          </div>
+
+          <div class="help-faq">
+            <strong>What protocols does WarClaw understand?</strong>
+            <p class="help-p"><strong>NMEA 0183</strong> — Navigation data (GPS, heading, depth, speed, wind). <strong>MODBUS TCP</strong> — Industrial sensors and engineering systems. <strong>IEC 61162</strong> — Bridge equipment data. <strong>HTTP</strong> — Web interfaces and APIs.</p>
+          </div>
+
+          <div class="help-faq">
+            <strong>The traffic monitor says "requires elevated privileges"</strong>
+            <p class="help-p">Full packet capture needs administrator/root access. If you started WarClaw with <code>sudo ./start.sh</code>, it will have full access. Without sudo, the traffic monitor still works but with limited visibility.</p>
+          </div>
+        </div>
+
+        <div class="help-section">
+          <h2 class="help-h2">Keyboard Shortcuts</h2>
+          <div class="help-shortcuts">
+            <div class="help-shortcut"><kbd>Enter</kbd> Send message in AI Assistant</div>
+            <div class="help-shortcut"><kbd>Shift+Enter</kbd> New line in AI Assistant</div>
+            <div class="help-shortcut"><kbd>Enter</kbd> Start LAN scan (when network input is focused)</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
     <!-- ── MISSION LOG ──────────────────────────────────────────── -->
     <div class="view" id="view-events">
       <div class="view-header">
@@ -457,6 +693,7 @@
 <script src="/static/js/apps.js"></script>
 <script src="/static/js/hardware.js"></script>
 <script src="/static/js/agents.js"></script>
+<script src="/static/js/traffic.js"></script>
 <script src="/static/js/events.js"></script>
 
 <script>

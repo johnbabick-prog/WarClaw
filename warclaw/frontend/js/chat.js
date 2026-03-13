@@ -79,6 +79,7 @@ function finalizeStreamingMessage(msgId, fullText) {
 
 function connectChatWs() {
   if (chatWs && chatWs.readyState === WebSocket.OPEN) return chatWs;
+  if (chatWs && chatWs.readyState === WebSocket.CONNECTING) return chatWs;
   chatWs = API.ws('/api/chat/ws');
 
   chatWs.onopen = () => {
@@ -97,6 +98,35 @@ function connectChatWs() {
   };
 
   return chatWs;
+}
+
+function waitForSocketOpen(ws) {
+  if (ws.readyState === WebSocket.OPEN) return Promise.resolve();
+  if (ws.readyState !== WebSocket.CONNECTING) return Promise.reject(new Error('WS unavailable'));
+
+  return new Promise((resolve, reject) => {
+    const onOpen = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error('WS error'));
+    };
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('WS timeout'));
+    }, 5000);
+
+    function cleanup() {
+      clearTimeout(timeout);
+      ws.removeEventListener('open', onOpen);
+      ws.removeEventListener('error', onError);
+    }
+
+    ws.addEventListener('open', onOpen, { once: true });
+    ws.addEventListener('error', onError, { once: true });
+  });
 }
 
 async function sendChatMessage() {
@@ -119,15 +149,11 @@ async function sendChatMessage() {
 
   const ws = connectChatWs();
   if (!ws || ws.readyState !== WebSocket.OPEN) {
-    // Wait for connection
-    await new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('WS timeout')), 5000);
-      ws.onopen = () => { clearTimeout(t); resolve(); };
-      ws.onerror = () => { clearTimeout(t); reject(new Error('WS error')); };
-    }).catch(e => {
+    const connected = await waitForSocketOpen(ws).then(() => true).catch(e => {
       toast('Could not connect to AI: ' + e.message, 'error');
-      return;
+      return false;
     });
+    if (!connected) return;
   }
 
   const msgId = appendMessage('assistant', '', true);
@@ -177,6 +203,13 @@ function initChat() {
 
   // Send button
   document.getElementById('chat-send-btn').onclick = sendChatMessage;
+  document.querySelectorAll('.prompt-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('chat-input').value = btn.dataset.prompt || '';
+      document.getElementById('chat-input').dispatchEvent(new Event('input'));
+      document.getElementById('chat-input').focus();
+    });
+  });
 
   // Enter to send (Shift+Enter for newline)
   const input = document.getElementById('chat-input');
@@ -203,13 +236,13 @@ function initChat() {
   // Welcome message (not added to history)
   setTimeout(() => {
     appendMessage('assistant',
-      'WarClaw AI — EdgeRunner · Autonomous Intelligence for Maritime Systems\n\n' +
-      'I can help you:\n' +
-      '• Analyze and monitor systems discovered on the ship LAN\n' +
-      '• Parse and explain NMEA 0183, MODBUS, and IEC 61162 data\n' +
-      '• Generate full-stack ship applications on demand\n' +
-      '• Recommend agents and integrations based on your network\n\n' +
-      'If I appear offline, load a GGUF model under ⚙ Hardware / Model first.'
+      'WarClaw AI standing by.\n\n' +
+      'Use this console like a live local operations assistant:\n' +
+      '• summarize systems discovered on the LAN\n' +
+      '• recommend AI integrations and agents\n' +
+      '• generate dashboards and tooling routes\n' +
+      '• explain NMEA, MODBUS, IEC 61162, and app architecture decisions\n\n' +
+      'If the core is offline, load a GGUF model under Hardware / Model first.'
     );
   }, 300);
 

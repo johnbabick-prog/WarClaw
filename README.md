@@ -1,12 +1,15 @@
-# AWS Elastic Beanstalk Node.js Sample App
+# WarClaw
 
-This repository contains a sample Node.js web application built using [Express](https://expressjs.com/), meant to be used as part of the AWS DevOps Learning Path.
+WarClaw is the EdgeRunner AI local maritime operations console in this repository. The runnable application lives under `warclaw/`, and the repo root now exposes a matching launcher at `./start.sh`.
 
-## Security
+## Local Run
 
-See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+```bash
+./start.sh
+```
 
-## License
+The launcher delegates to `warclaw/scripts/start.sh`, which starts the FastAPI app on port `7070` by default.
 
-This library is licensed under the MIT-0 License. See the LICENSE file.
+## App Docs
 
+Project-specific setup, model loading, Docker usage, and API details are documented in `warclaw/README.md`.

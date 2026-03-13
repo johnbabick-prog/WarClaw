@@ -44,6 +44,7 @@ const State = {
   lanScanResult: null,
   generatedApps: [],
   hwProfile: null,
+  lastStatus: null,
 };
 
 // ── Toast notifications ──────────────────────────────────────────
@@ -69,6 +70,7 @@ function showView(name) {
   if (nav) nav.classList.add('active');
 
   State.currentView = name;
+  window.dispatchEvent(new CustomEvent('viewchange', { detail: name }));
 }
 
 // ── System time ──────────────────────────────────────────────────
@@ -87,10 +89,101 @@ function fmtUptime(s) {
   return `${h}h ${m}m`;
 }
 
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+function renderAssistantIntel() {
+  const recList = document.getElementById('assistant-rec-list');
+  if (!recList) return;
+
+  const items = [];
+  if (!State.modelReady) {
+    items.push({
+      kicker: 'AI Core',
+      title: 'Load a GGUF model first',
+      copy: 'The assistant, app factory, and recommendation engine become substantially more useful once the local model is online.',
+    });
+  }
+
+  if (!State.lanScanResult) {
+    items.push({
+      kicker: 'Discovery',
+      title: 'Run a LAN scan',
+      copy: 'WarClaw can recommend concrete integrations after it sees actual NMEA, MODBUS, IEC 61162, or HTTP services on the network.',
+    });
+  } else {
+    const hosts = State.lanScanResult.hosts_up || 0;
+    items.push({
+      kicker: 'Network',
+      title: `${hosts} host${hosts === 1 ? '' : 's'} discovered`,
+      copy: hosts > 0
+        ? 'Use the assistant to summarize discovered services, rank integrations, or generate a dashboard around the live network footprint.'
+        : 'No hosts were discovered on the last scan. Re-run against the correct subnet or inspect the scan timeout and network segment.',
+    });
+
+    if ((State.lanScanResult.recommendations || []).length) {
+      items.push({
+        kicker: 'Integrations',
+        title: 'AI integrations available',
+        copy: State.lanScanResult.recommendations[0],
+      });
+    }
+  }
+
+  if (State.generatedApps.length) {
+    items.push({
+      kicker: 'Generated Apps',
+      title: `${State.generatedApps.length} app${State.generatedApps.length === 1 ? '' : 's'} ready`,
+      copy: 'Open an existing generated route or ask the assistant to extend the current app set with a new operational workflow.',
+    });
+  }
+
+  recList.innerHTML = items.map(item => `
+    <div class="intel-card">
+      <div class="intel-kicker">${item.kicker}</div>
+      <div class="intel-title">${item.title}</div>
+      <div class="intel-copy">${item.copy}</div>
+    </div>
+  `).join('');
+}
+
+function syncLiveUi() {
+  const status = State.lastStatus;
+  const hosts = State.lanScanResult?.hosts_up || 0;
+  const modelSummary = status?.model_path
+    ? status.model_path.split('/').pop()
+    : 'No model loaded';
+
+  setText('presence-value', State.modelReady ? 'AI Advisor Online' : 'AI Advisor Standing By');
+  setText('dash-ai-status', State.modelReady ? 'ONLINE' : 'OFFLINE');
+  setText('hero-ai-summary', State.modelReady ? 'Local AI model online' : 'No local model loaded');
+  setText('hero-model-summary', modelSummary);
+  setText('assistant-core-status', State.modelReady ? 'Online' : 'Offline');
+  setText('assistant-lan-summary', hosts ? `${hosts} host${hosts === 1 ? '' : 's'} visible` : 'No scan yet');
+  setText('assistant-app-summary', `${State.generatedApps.length || status?.generated_apps || 0} generated`);
+
+  if (State.modelReady && hosts) {
+    setText('hero-next-step', 'Ask for integration recommendations');
+    setText('hero-next-step-sub', 'WarClaw can now map discovered systems to apps, agents, and live workflows.');
+  } else if (State.modelReady) {
+    setText('hero-next-step', 'Scan the LAN to ground the assistant');
+    setText('hero-next-step-sub', 'Discovery data lets the AI recommend concrete protocol integrations instead of generic ideas.');
+  } else {
+    setText('hero-next-step', 'Load a model, then scan the LAN');
+    setText('hero-next-step-sub', 'That unlocks the live assistant, agent recommendations, and app generation path.');
+  }
+
+  if (typeof updateSetupBanner === 'function') updateSetupBanner(State.modelReady);
+  renderAssistantIntel();
+}
+
 // ── Status polling ───────────────────────────────────────────────
 async function pollStatus() {
   try {
     const status = await API.get('/api/status');
+    State.lastStatus = status;
     State.modelReady = status.model_ready;
 
     const dot = document.getElementById('ai-status-dot');
@@ -152,9 +245,12 @@ async function pollStatus() {
     if (anomEl && status.anomalies_detected != null)
       anomEl.textContent = `${status.anomalies_detected} anomalies · ${status.data_bus_frames || 0} bus frames`;
 
+    syncLiveUi();
+
   } catch (e) {
     const dot = document.getElementById('ai-status-dot');
     if (dot) dot.className = 'status-dot error';
+    setText('presence-value', 'System Status Unreachable');
   }
 }
 
@@ -165,6 +261,7 @@ document.querySelectorAll('.nav-item[data-view]').forEach(item => {
     showView(view);
     if (view === 'hardware') loadHardwareView();
     if (view === 'apps') loadAppList();
+    if (view === 'traffic') refreshConversations && refreshConversations();
   });
 });
 
