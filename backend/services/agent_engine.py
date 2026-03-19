@@ -41,6 +41,7 @@ class AgentType(str, Enum):
     ENGINEERING_MONITOR = "engineering_monitor"
     WEATHER_STATION = "weather_station"
     SECURITY_MONITOR = "security_monitor"
+    TRAFFIC_ADVISOR = "traffic_advisor"
     PROTOCOL_LOGGER = "protocol_logger"
     CUSTOM = "custom"
 
@@ -117,6 +118,21 @@ AGENT_TEMPLATES: dict[str, dict] = {
             "alert_on_new_host": {"type": "bool", "default": True, "label": "Alert on new host"},
         },
     },
+    AgentType.TRAFFIC_ADVISOR: {
+        "name": "Traffic Intercept Advisor",
+        "description": (
+            "Continuously inspects captured traffic flows, identifies service-to-service relationships, "
+            "and pushes actionable recommendations when new operational patterns appear."
+        ),
+        "required_protocols": [],
+        "icon": "⬡",
+        "category": "traffic",
+        "priority": "high",
+        "config_schema": {
+            "analysis_interval_s": {"type": "int", "default": 15, "label": "Analysis interval (sec)"},
+            "emit_recommendation_events": {"type": "bool", "default": True, "label": "Push mission log recommendations"},
+        },
+    },
     AgentType.PROTOCOL_LOGGER: {
         "name": "Protocol Data Logger",
         "description": (
@@ -157,6 +173,7 @@ class Agent:
     frames_processed: int = 0
     alerts_fired: int = 0
     last_alert: Optional[str] = None
+    recommendations: list[dict] = field(default_factory=list)
     error_message: Optional[str] = None
     _task: Optional[asyncio.Task] = field(default=None, repr=False)
 
@@ -180,6 +197,7 @@ class Agent:
             "frames_processed": self.frames_processed,
             "alerts_fired": self.alerts_fired,
             "last_alert": self.last_alert,
+            "recommendations": self.recommendations,
             "error_message": self.error_message,
             "uptime_s": round(time.time() - self.started_at) if self.started_at and self.status == AgentStatus.RUNNING else None,
         }
@@ -335,6 +353,29 @@ class AgentEngine:
                     "config_schema": template.get("config_schema", {}),
                 })
 
+        # Recommend the traffic advisor when there is enough network surface to monitor.
+        if len(hosts) >= 2:
+            template = AGENT_TEMPLATES[AgentType.TRAFFIC_ADVISOR]
+            already = any(
+                a.agent_type == AgentType.TRAFFIC_ADVISOR
+                for a in self._agents.values()
+                if a.status in (AgentStatus.RUNNING, AgentStatus.READY)
+            )
+            recommendations.append({
+                "agent_type": AgentType.TRAFFIC_ADVISOR,
+                "name": template["name"],
+                "description": template["description"],
+                "icon": template["icon"],
+                "category": template["category"],
+                "priority": template["priority"],
+                "target_host": "0.0.0.0",
+                "target_port": 0,
+                "protocol": "traffic",
+                "reason": "Multiple hosts are present on the LAN — deploy continuous traffic recommendations and topology monitoring.",
+                "already_deployed": already,
+                "config_schema": template.get("config_schema", {}),
+            })
+
         # Sort by priority
         priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         recommendations.sort(key=lambda r: priority_order.get(r["priority"], 9))
@@ -342,11 +383,25 @@ class AgentEngine:
         return recommendations
 
     def deploy(self, agent_type: str, target_host: str, target_port: int,
-               config: dict | None = None, name_override: str | None = None) -> Agent:
+               config: dict | None = None, name_override: str | None = None,
+               description: str | None = None, icon: str | None = None,
+               category: str | None = None, priority: str | None = None) -> Agent:
         """Create and register an agent instance (does not start it yet)."""
         template = AGENT_TEMPLATES.get(agent_type)
-        if not template:
+
+        if not template and agent_type != AgentType.CUSTOM:
             raise ValueError(f"Unknown agent type: {agent_type}")
+
+        # Support custom agents without a template
+        if not template:
+            template = {
+                "name": name_override or "Custom Agent",
+                "description": description or "User-defined custom monitoring agent.",
+                "icon": icon or "⬡",
+                "category": category or "custom",
+                "priority": priority or "medium",
+                "config_schema": {},
+            }
 
         agent_id = f"{agent_type}-{uuid.uuid4().hex[:8]}"
         channel = f"{agent_type}:{target_host}:{target_port}"
@@ -362,10 +417,10 @@ class AgentEngine:
             id=agent_id,
             agent_type=agent_type,
             name=name_override or template["name"],
-            description=template["description"],
-            icon=template["icon"],
-            category=template["category"],
-            priority=template["priority"],
+            description=description or template["description"],
+            icon=icon or template["icon"],
+            category=category or template["category"],
+            priority=priority or template["priority"],
             status=AgentStatus.READY,
             target_host=target_host,
             target_port=target_port,
@@ -445,6 +500,10 @@ class AgentEngine:
         try:
             if agent.agent_type == AgentType.SECURITY_MONITOR:
                 await self._run_security_agent(agent)
+            elif agent.agent_type == AgentType.TRAFFIC_ADVISOR:
+                await self._run_traffic_advisor(agent)
+            elif agent.agent_type == AgentType.CUSTOM:
+                await self._run_custom_agent(agent)
             elif agent.agent_type in (AgentType.NAV_WATCH, AgentType.WEATHER_STATION,
                                       AgentType.PROTOCOL_LOGGER, AgentType.ENGINEERING_MONITOR):
                 await self._run_stream_agent(agent)
@@ -595,6 +654,70 @@ class AgentEngine:
                 log.warning("Security scan failed: %s", e)
 
             await asyncio.sleep(interval)
+
+    async def _run_traffic_advisor(self, agent: Agent) -> None:
+        """Traffic advisor agent — periodically reviews traffic and pushes recommendations."""
+        from .traffic_monitor import traffic_monitor
+
+        interval = agent.config.get("analysis_interval_s", 15)
+        emit_events = agent.config.get("emit_recommendation_events", True)
+        previous_titles: set[str] = set()
+
+        while agent.status == AgentStatus.RUNNING:
+            try:
+                recommendations = traffic_monitor.get_recommendations()
+                topology = traffic_monitor.get_topology()
+                agent.frames_processed = traffic_monitor.stats.get("packets_captured", 0)
+                agent.recommendations = recommendations[:6]
+
+                current_titles = {item["title"] for item in recommendations}
+                new_titles = current_titles - previous_titles
+                if new_titles and emit_events:
+                    top = recommendations[0]
+                    agent.alerts_fired += 1
+                    agent.last_alert = top["title"]
+                    log_event(
+                        "info",
+                        "traffic",
+                        f"Traffic advisor update: {top['title']}",
+                        {
+                            "agent_id": agent.id,
+                            "title": top["title"],
+                            "rationale": top["rationale"],
+                            "action": top["action"],
+                            "node_count": len(topology.get("nodes", [])),
+                            "edge_count": len(topology.get("edges", [])),
+                        },
+                    )
+                previous_titles = current_titles
+            except Exception as e:
+                log.warning("Traffic advisor failed: %s", e)
+
+            await asyncio.sleep(interval)
+
+    async def _run_custom_agent(self, agent: Agent) -> None:
+        """
+        Custom agent — runs a lightweight monitoring loop.
+        If target_host/port are set and non-zero, attempts TCP stream.
+        Otherwise, operates as a passive agent that logs status periodically.
+        """
+        host = agent.target_host
+        port = agent.target_port
+
+        # If there's a real target, try to connect and stream
+        if host and host != "0.0.0.0" and port > 0:
+            await self._run_stream_agent(agent)
+            return
+
+        # Passive custom agent — periodic heartbeat
+        log.info("Custom agent %s running in passive mode", agent.id)
+        log_event("info", "system",
+                  f"{agent.name} running in passive monitoring mode",
+                  {"agent_id": agent.id})
+
+        while agent.status == AgentStatus.RUNNING:
+            agent.frames_processed += 1
+            await asyncio.sleep(30)
 
     def _check_agent_alerts(self, agent: Agent, sentence_type: str, decoded: dict) -> None:
         """Check decoded NMEA data against agent alert thresholds."""

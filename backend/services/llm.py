@@ -7,7 +7,10 @@ It exposes synchronous and async streaming chat completions.
 import asyncio
 import json
 import logging
+import re
 import threading
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import AsyncIterator, Iterator, Optional
 
@@ -61,6 +64,7 @@ class LLMService:
     def __init__(self):
         self._llm = None
         self._model_path: Optional[str] = None
+        self._provider = "none"
         self._ready = False
         self._lock = threading.Lock()
 
@@ -71,6 +75,10 @@ class LLMService:
     @property
     def model_path(self) -> Optional[str]:
         return self._model_path
+
+    @property
+    def provider(self) -> str:
+        return self._provider
 
     def load(self, model_path: str, n_ctx: int = DEFAULT_CONTEXT_LENGTH,
              n_threads: int = DEFAULT_THREADS, n_gpu_layers: int = DEFAULT_GPU_LAYERS) -> None:
@@ -93,14 +101,54 @@ class LLMService:
             verbose=False,
         )
         self._model_path = str(path)
+        self._provider = "gguf"
         self._ready = True
         log.info("Model loaded: %s", path.name)
+
+    def load_ollama(self, model_name: str) -> None:
+        """Use a locally running Ollama model as the active chat backend."""
+        if not model_name.strip():
+            raise ValueError("Ollama model name is required")
+
+        models = self.list_ollama_models()
+        available = {model["name"] for model in models}
+        if model_name not in available:
+            raise FileNotFoundError(f"Ollama model not found: {model_name}")
+
+        self._llm = None
+        self._model_path = model_name
+        self._provider = "ollama"
+        self._ready = True
+        log.info("Ollama model selected: %s", model_name)
 
     def list_available_models(self) -> list[dict]:
         """Return GGUF files found in the models directory."""
         models = []
         for f in sorted(MODELS_DIR.glob("*.gguf")):
             models.append({"name": f.name, "path": str(f), "size_mb": round(f.stat().st_size / 1e6, 1)})
+        return models
+
+    def list_ollama_models(self) -> list[dict]:
+        """Return models available from a local Ollama daemon, if present."""
+        try:
+            request = urllib.request.Request("http://127.0.0.1:11434/api/tags")
+            with urllib.request.urlopen(request, timeout=1.5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+            return []
+
+        models = []
+        for item in payload.get("models", []):
+            name = item.get("name")
+            if not name:
+                continue
+            size = item.get("size") or 0
+            models.append({
+                "name": name,
+                "path": name,
+                "size_mb": round(size / 1e6, 1) if size else None,
+                "provider": "ollama",
+            })
         return models
 
     def _build_messages(self, history: list[dict], user_message: str) -> list[dict]:
@@ -110,15 +158,104 @@ class LLMService:
         messages.append({"role": "user", "content": user_message})
         return messages
 
+    def _stream_ollama_chat(self, history: list[dict], user_message: str,
+                            max_tokens: int = 2048, temperature: float = 0.7) -> Iterator[str]:
+        if not self._model_path:
+            yield "[WarClaw] No Ollama model selected."
+            return
+
+        payload = {
+            "model": self._model_path,
+            "messages": self._build_messages(history, user_message),
+            "stream": True,
+            "options": {
+                "num_predict": max_tokens,
+                "temperature": temperature,
+            },
+        }
+        request = urllib.request.Request(
+            "http://127.0.0.1:11434/api/chat",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                for raw_line in response:
+                    line = raw_line.decode("utf-8").strip()
+                    if not line:
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    content = self._sanitize_token(chunk.get("message", {}).get("content", ""))
+                    if content:
+                        yield content
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore").strip()
+            raise RuntimeError(detail or f"Ollama request failed with HTTP {exc.code}") from exc
+        except (OSError, urllib.error.URLError, TimeoutError) as exc:
+            raise RuntimeError("Could not reach the local Ollama daemon on http://127.0.0.1:11434") from exc
+
+    def _sanitize_token(self, token: str) -> str:
+        """Remove ChatML artifacts from a single streaming token without stripping whitespace."""
+        if not token:
+            return ""
+        token = re.sub(r"<\|[^>]+?\|>", "", token)
+        token = re.sub(r"\[/?INST\]", "", token, flags=re.IGNORECASE)
+        return token
+
+    def sanitize_response(self, text: str) -> str:
+        """Clean up a complete assembled response."""
+        text = text or ""
+        text = re.sub(r"<\|[^>]+?\|>", "", text)
+        text = re.sub(r"\[/?INST\]", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"^>\s*$", "", text, flags=re.MULTILINE)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+    def response_looks_broken(self, text: str) -> bool:
+        if not text.strip():
+            return True
+        if "<|im_start|>" in text or "<|im_end|>" in text:
+            return True
+        if text.count("<|") >= 2:
+            return True
+        if len(text) > 80 and len(set(text)) < 12:
+            return True
+        return False
+
     def stream_chat(self, history: list[dict], user_message: str,
                     max_tokens: int = 2048, temperature: float = 0.7) -> Iterator[str]:
         """Synchronous streaming generator — yields token strings. Thread-safe via lock."""
         if not self._ready or self._llm is None:
-            yield "[WarClaw] No model loaded. Please load a GGUF model first."
+            if self._provider == "ollama":
+                collected = []
+                for token in self._stream_ollama_chat(history, user_message, max_tokens, temperature):
+                    collected.append(token)
+                    yield token
+                final = self.sanitize_response("".join(collected))
+                if self.response_looks_broken(final):
+                    yield "I could not produce a reliable answer with the currently loaded model. Use a stronger chat-tuned model for better assistant responses."
+                return
+            yield "[WarClaw] No model loaded. Load a GGUF file or select a local Ollama model first."
+            return
+
+        if self._provider == "ollama":
+            collected = []
+            for token in self._stream_ollama_chat(history, user_message, max_tokens, temperature):
+                collected.append(token)
+                yield token
+            final = self.sanitize_response("".join(collected))
+            if self.response_looks_broken(final):
+                yield "I could not produce a reliable answer with the currently loaded model. Use a stronger chat-tuned model for better assistant responses."
             return
 
         messages = self._build_messages(history, user_message)
         with self._lock:
+            collected = []
             stream = self._llm.create_chat_completion(
                 messages=messages,
                 max_tokens=max_tokens,
@@ -129,7 +266,14 @@ class LLMService:
                 delta = chunk["choices"][0]["delta"]
                 token = delta.get("content", "")
                 if token:
-                    yield token
+                    cleaned = self._sanitize_token(token)
+                    if cleaned:
+                        collected.append(cleaned)
+                        yield cleaned
+
+            final = self.sanitize_response("".join(collected))
+            if self.response_looks_broken(final):
+                yield "I could not produce a reliable answer with the currently loaded model. Use a stronger chat-tuned model for better assistant responses."
 
     async def astream_chat(self, history: list[dict], user_message: str,
                            max_tokens: int = 2048, temperature: float = 0.7) -> AsyncIterator[str]:
@@ -155,7 +299,7 @@ class LLMService:
     def chat_once(self, history: list[dict], user_message: str,
                   max_tokens: int = 2048, temperature: float = 0.7) -> str:
         """Non-streaming, returns full response string."""
-        return "".join(self.stream_chat(history, user_message, max_tokens, temperature))
+        return self.sanitize_response("".join(self.stream_chat(history, user_message, max_tokens, temperature)))
 
 
 # Module-level singleton

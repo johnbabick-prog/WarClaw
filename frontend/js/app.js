@@ -31,6 +31,32 @@ const API = {
     return r.json();
   },
 
+  async patch(path, body) {
+    const r = await fetch(this.base + path, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+    return r.json();
+  },
+
+  async put(path, body) {
+    const r = await fetch(this.base + path, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+    return r.json();
+  },
+
   ws(path) {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     return new WebSocket(`${proto}//${location.host}${path}`);
@@ -45,6 +71,9 @@ const State = {
   generatedApps: [],
   hwProfile: null,
   lastStatus: null,
+  chatSessions: [],
+  currentChatSessionId: null,
+  reportTemplates: [],
 };
 
 // ── Toast notifications ──────────────────────────────────────────
@@ -70,6 +99,7 @@ function showView(name) {
   if (nav) nav.classList.add('active');
 
   State.currentView = name;
+  sessionStorage.setItem('warclaw.currentView', name);
   window.dispatchEvent(new CustomEvent('viewchange', { detail: name }));
 }
 
@@ -89,6 +119,76 @@ function fmtUptime(s) {
   return `${h}h ${m}m`;
 }
 
+function fmtEtaSeconds(s) {
+  const value = Math.max(0, Math.round(s || 0));
+  if (value < 60) return `~${value}s remaining`;
+  const m = Math.floor(value / 60);
+  const rem = value % 60;
+  return `~${m}m ${rem}s remaining`;
+}
+
+function createProgressController(fillId, statusId, etaId, options = {}) {
+  const fill = document.getElementById(fillId);
+  const status = document.getElementById(statusId);
+  const eta = etaId ? document.getElementById(etaId) : null;
+  const {
+    start = 6,
+    cap = 92,
+    step = 3,
+    intervalMs = 900,
+    etaSeconds = 45,
+    message = 'Working...',
+  } = options;
+
+  if (fill) fill.style.width = `${start}%`;
+  if (status) {
+    status.textContent = message;
+    status.style.color = 'var(--accent-amber)';
+  }
+  if (eta) eta.textContent = fmtEtaSeconds(etaSeconds);
+
+  let pct = start;
+  let remaining = etaSeconds;
+  const timer = setInterval(() => {
+    pct = Math.min(cap, pct + step);
+    remaining = Math.max(0, remaining - Math.max(1, Math.round(intervalMs / 1000)));
+    if (fill) fill.style.width = `${pct}%`;
+    if (eta) eta.textContent = fmtEtaSeconds(remaining);
+  }, intervalMs);
+
+  return {
+    set(messageText, pctValue = null) {
+      if (status) status.textContent = messageText;
+      if (pctValue != null && fill) fill.style.width = `${pctValue}%`;
+    },
+    complete(messageText) {
+      clearInterval(timer);
+      if (fill) fill.style.width = '100%';
+      if (status) {
+        status.textContent = messageText;
+        status.style.color = 'var(--accent-green)';
+      }
+      if (eta) eta.textContent = 'Completed';
+    },
+    fail(messageText) {
+      clearInterval(timer);
+      if (status) {
+        status.textContent = messageText;
+        status.style.color = 'var(--accent-red)';
+      }
+      if (fill) fill.style.width = '100%';
+      if (eta) eta.textContent = 'Failed';
+    },
+    reset(delayMs = 2000) {
+      clearInterval(timer);
+      setTimeout(() => {
+        if (fill) fill.style.width = '0%';
+        if (eta) eta.textContent = '';
+      }, delayMs);
+    },
+  };
+}
+
 function setText(id, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = value;
@@ -102,8 +202,8 @@ function renderAssistantIntel() {
   if (!State.modelReady) {
     items.push({
       kicker: 'AI Core',
-      title: 'Load a GGUF model first',
-      copy: 'The assistant, app factory, and recommendation engine become substantially more useful once the local model is online.',
+      title: 'Load a local model first',
+      copy: 'The assistant, app factory, and recommendation engine become substantially more useful once a GGUF or Ollama model is online.',
     });
   }
 
@@ -153,7 +253,7 @@ function syncLiveUi() {
   const status = State.lastStatus;
   const hosts = State.lanScanResult?.hosts_up || 0;
   const modelSummary = status?.model_path
-    ? status.model_path.split('/').pop()
+    ? ((status.model_provider === 'gguf') ? status.model_path.split('/').pop() : status.model_path)
     : 'No model loaded';
 
   setText('presence-value', State.modelReady ? 'AI Advisor Online' : 'AI Advisor Standing By');
@@ -203,7 +303,9 @@ async function pollStatus() {
     if (appsEl) appsEl.textContent = status.generated_apps;
     const modelEl = document.getElementById('stat-model');
     if (modelEl) modelEl.textContent =
-      status.model_path ? status.model_path.split('/').pop().slice(0, 28) : '— no model loaded';
+      status.model_path
+        ? ((status.model_provider === 'gguf') ? status.model_path.split('/').pop() : status.model_path).slice(0, 28)
+        : '— no model loaded';
 
     // Uptime + version
     const uptimeEl = document.getElementById('dash-uptime');
@@ -262,14 +364,26 @@ document.querySelectorAll('.nav-item[data-view]').forEach(item => {
     if (view === 'hardware') loadHardwareView();
     if (view === 'apps') loadAppList();
     if (view === 'traffic') refreshConversations && refreshConversations();
+    if (view === 'chat') refreshChatSessions && refreshChatSessions();
+    if (view === 'reports') loadReportsView && loadReportsView();
   });
 });
 
 // ── Init ─────────────────────────────────────────────────────────
 (async function init() {
+  const params = new URLSearchParams(window.location.search);
+  const requestedView = params.get('view');
+  const requestedEdit = params.get('edit');
   updateClock();
   setInterval(updateClock, 1000);
   await pollStatus();
   setInterval(pollStatus, 8000);
-  showView('dashboard');
+  const initialView = requestedView || sessionStorage.getItem('warclaw.currentView') || 'dashboard';
+  showView(initialView);
+  if (initialView === 'apps' && typeof loadAppList === 'function') {
+    await loadAppList();
+    if (requestedEdit && typeof editApp === 'function') {
+      await editApp(requestedEdit).catch(() => {});
+    }
+  }
 })();

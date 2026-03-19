@@ -1,0 +1,5 @@
+{
+  "model_path": "llama3:latest",
+  "provider": "ollama",
+  "n_gpu_layers": 0
+}

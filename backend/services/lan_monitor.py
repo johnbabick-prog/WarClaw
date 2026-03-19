@@ -10,7 +10,9 @@ Runs entirely locally, no external calls.
 import asyncio
 import ipaddress
 import logging
+import platform
 import socket
+import subprocess
 import time
 from dataclasses import dataclass, field
 from typing import AsyncIterator, Optional
@@ -46,6 +48,9 @@ class DiscoveredHost:
 @dataclass
 class LanScanResult:
     network: str
+    interface: Optional[str]
+    network_name: Optional[str]
+    probe_ports: list[int]
     hosts_scanned: int
     hosts_up: int
     discovered: list[DiscoveredHost]
@@ -54,13 +59,24 @@ class LanScanResult:
 
 
 # Ports we probe on every host
-PROBE_PORTS = list(set(NMEA_TCP_PORTS + [MODBUS_TCP_PORT] + IEC61162_PORTS + [
-    80, 443, 8080, 8443, 502, 20000, 10001
+DEFAULT_PROBE_PORTS = sorted(set(NMEA_TCP_PORTS + [MODBUS_TCP_PORT] + IEC61162_PORTS + [
+    21, 22, 23, 25, 53, 80, 110, 123, 139, 143, 161, 443, 445, 502,
+    515, 548, 554, 993, 995, 1025, 1080, 1883, 2000, 3306, 3389, 4001,
+    4840, 5432, 5672, 5900, 6379, 8000, 8080, 8443, 8888, 9100, 10001,
+    10110, 18830, 20000, 2222, 3000,
 ]))
 
 
-def _get_local_network() -> Optional[str]:
-    """Return the first non-loopback IPv4 network in CIDR notation."""
+def _normalize_probe_ports(extra_ports: Optional[list[int]] = None) -> list[int]:
+    ports = set(DEFAULT_PROBE_PORTS)
+    for port in extra_ports or []:
+        if 1 <= int(port) <= 65535:
+            ports.add(int(port))
+    return sorted(ports)
+
+
+def _get_local_network_info() -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Return detected CIDR, interface name, and friendly network name when available."""
     for iface, addrs in psutil.net_if_addrs().items():
         for addr in addrs:
             if addr.family == socket.AF_INET and not addr.address.startswith("127."):
@@ -68,9 +84,37 @@ def _get_local_network() -> Optional[str]:
                     net = ipaddress.IPv4Network(f"{addr.address}/{addr.netmask}", strict=False)
                     # Skip huge networks — only scan /24 or smaller
                     if net.prefixlen >= 16:
-                        return str(net)
+                        return str(net), iface, _get_network_name(iface)
                 except Exception:
                     continue
+    return None, None, None
+
+
+def _get_network_name(interface: str) -> Optional[str]:
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            out = subprocess.check_output(
+                ["networksetup", "-getairportnetwork", interface],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=2,
+            ).strip()
+            if ":" in out:
+                name = out.split(":", 1)[1].strip()
+                if name and "not associated" not in name.lower():
+                    return name
+        elif system == "Linux":
+            out = subprocess.check_output(
+                ["iwgetid", interface, "--raw"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=2,
+            ).strip()
+            if out:
+                return out
+    except Exception:
+        return None
     return None
 
 
@@ -163,21 +207,26 @@ def _build_recommendations(discovered: list[DiscoveredHost]) -> list[str]:
     return recs
 
 
-async def scan_network(network: Optional[str] = None, max_hosts: int = 254) -> LanScanResult:
+async def scan_network(network: Optional[str] = None, max_hosts: int = 254, extra_ports: Optional[list[int]] = None) -> LanScanResult:
     """Full async LAN discovery scan."""
     t0 = time.monotonic()
+    detected_network = None
+    detected_interface = None
+    detected_network_name = None
     if not network:
-        network = _get_local_network() or "192.168.1.0/24"
+        detected_network, detected_interface, detected_network_name = _get_local_network_info()
+        network = detected_network or "192.168.1.0/24"
 
     log.info("Scanning network %s", network)
     net = ipaddress.IPv4Network(network, strict=False)
     hosts = list(net.hosts())[:max_hosts]
+    probe_ports = _normalize_probe_ports(extra_ports)
 
     # Phase 1: port probe all hosts concurrently
     discovered: list[DiscoveredHost] = []
 
     async def probe_host(ip: str) -> Optional[DiscoveredHost]:
-        tasks = [_probe_port(ip, port) for port in PROBE_PORTS]
+        tasks = [_probe_port(ip, port) for port in probe_ports]
         results = await asyncio.gather(*tasks)
         open_services = [r for r in results if r is not None]
         if not open_services:
@@ -208,6 +257,9 @@ async def scan_network(network: Optional[str] = None, max_hosts: int = 254) -> L
 
     return LanScanResult(
         network=network,
+        interface=detected_interface,
+        network_name=detected_network_name,
+        probe_ports=probe_ports,
         hosts_scanned=len(hosts),
         hosts_up=len(discovered),
         discovered=discovered,

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from ..services.hardware import detect_hardware
 from ..services.llm import llm_service
+from ..services.model_selection import load_selected_model, save_selected_model
 from ..config import MODELS_DIR, DEFAULT_CONTEXT_LENGTH, DEFAULT_THREADS
 
 router = APIRouter(prefix="/api/hardware", tags=["hardware"])
@@ -30,18 +31,25 @@ def get_hardware_profile():
 
 @router.get("/models")
 def list_models():
-    """List GGUF model files available in the models/ directory."""
-    models = llm_service.list_available_models()
+    """List local GGUF files and Ollama models available to WarClaw."""
+    gguf_models = llm_service.list_available_models()
+    ollama_models = llm_service.list_ollama_models()
+    selected = load_selected_model()
     return {
-        "models": models,
+        "models": gguf_models,
+        "ollama_models": ollama_models,
         "models_dir": str(MODELS_DIR),
         "current_model": llm_service.model_path,
+        "current_provider": llm_service.provider,
         "model_ready": llm_service.ready,
+        "saved_model": selected.get("model_path"),
+        "saved_provider": selected.get("provider"),
     }
 
 
 class LoadModelRequest(BaseModel):
-    model_path: str
+    model_path: str = ""
+    provider: str = "gguf"
     n_ctx: int = DEFAULT_CONTEXT_LENGTH
     n_threads: int = DEFAULT_THREADS
     n_gpu_layers: int = 0
@@ -53,15 +61,20 @@ class LoadModelRequest(BaseModel):
 
 @router.post("/models/load")
 def load_model(req: LoadModelRequest):
-    """Load a GGUF model into memory."""
+    """Load a GGUF model into memory or select an Ollama model."""
     try:
-        llm_service.load(
-            model_path=req.model_path,
-            n_ctx=req.n_ctx,
-            n_threads=req.n_threads,
-            n_gpu_layers=req.n_gpu_layers,
-        )
-        return {"status": "loaded", "model": req.model_path}
+        provider = (req.provider or "gguf").lower()
+        if provider == "ollama":
+            llm_service.load_ollama(req.model_path)
+        else:
+            llm_service.load(
+                model_path=req.model_path,
+                n_ctx=req.n_ctx,
+                n_threads=req.n_threads,
+                n_gpu_layers=req.n_gpu_layers,
+            )
+        save_selected_model(req.model_path, provider=provider, n_gpu_layers=req.n_gpu_layers)
+        return {"status": "loaded", "model": req.model_path, "provider": provider}
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

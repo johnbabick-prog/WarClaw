@@ -89,6 +89,11 @@
       <span>App Factory</span>
     </div>
 
+    <div class="nav-item" data-view="reports">
+      <span class="nav-icon">▤</span>
+      <span>Reports</span>
+    </div>
+
     <div class="nav-item" data-view="hardware">
       <span class="nav-icon">⚙</span>
       <span>Hardware / Model</span>
@@ -253,6 +258,13 @@
         <span>Type a question or command in the box below and press Enter. The AI understands ship systems, navigation data, and can generate apps for you. Try: "What systems are on the LAN?" or "Create a dashboard for navigation data".</span>
       </div>
       <div class="assistant-shell">
+        <aside class="chat-session-rail">
+          <div class="chat-session-actions">
+            <button class="btn btn-primary" id="chat-new-session-btn">＋ New Session</button>
+            <button class="btn" id="chat-delete-session-btn">✕ Delete</button>
+          </div>
+          <div id="chat-session-list"></div>
+        </aside>
         <section class="assistant-stage">
           <div class="assistant-note">
             <span>Ask about discovered systems, generated apps, agent recommendations, or what to build next.</span>
@@ -268,6 +280,9 @@
           <div id="chat-messages"></div>
 
           <div id="chat-input-area">
+            <div class="progress-bar" style="margin-bottom:10px;">
+              <div class="progress-fill" id="chat-progress-fill" style="width:0%;"></div>
+            </div>
             <div class="chat-input-row">
               <textarea
                 id="chat-input"
@@ -278,6 +293,8 @@
                 ▶ SEND
               </button>
             </div>
+            <div id="chat-status" class="text-muted" style="margin-top:6px;min-height:16px;">Ready for operator input.</div>
+            <div id="chat-eta" class="text-muted" style="margin-top:2px;font-size:10px;min-height:14px;"></div>
             <div class="text-muted" style="margin-top:6px;">Shift+Enter for new line · Enter to send</div>
           </div>
         </section>
@@ -294,6 +311,10 @@
           <input type="text" id="lan-network-input"
             placeholder="192.168.1.0/24 (auto-detect)"
             style="width:200px;height:32px;padding:4px 10px;font-size:12px;" />
+          <input type="text" id="lan-ports-input"
+            placeholder="Extra ports: 1883,47808"
+            style="width:200px;height:32px;padding:4px 10px;font-size:12px;" />
+          <button class="btn" onclick="openLanHelp()">Help</button>
           <button class="btn btn-primary" id="lan-scan-btn">⊕ Scan LAN</button>
         </div>
       </div>
@@ -305,6 +326,13 @@
       <div style="flex:1;display:grid;grid-template-columns:1fr 300px;overflow:hidden;">
 
         <div style="overflow-y:auto;display:flex;flex-direction:column;">
+          <div style="padding:0 16px 12px;">
+            <div class="progress-bar">
+              <div class="progress-fill" id="lan-progress-fill" style="width:0%;"></div>
+            </div>
+            <div id="lan-status" class="text-muted" style="font-size:11px;margin-top:8px;min-height:16px;">Awaiting scan command.</div>
+            <div id="lan-eta" class="text-muted" style="font-size:10px;margin-top:4px;min-height:14px;"></div>
+          </div>
           <div id="lan-recs"></div>
           <div id="lan-host-list" style="padding:0 16px 16px;display:flex;flex-direction:column;gap:10px;">
             <div class="empty-state" id="lan-empty">
@@ -351,58 +379,206 @@
         <span class="nav-icon">⬡</span>
         <span class="view-title">App Factory</span>
         <span class="view-subtitle">Describe a ship app — AI generates it in seconds</span>
+        <div class="view-actions">
+          <button class="btn btn-primary" id="app-open-drawer-btn" onclick="openAppBuilderDrawer()">+ New App</button>
+        </div>
       </div>
 
       <div class="view-help-bar">
         <span class="help-icon">?</span>
-        <span>Describe any app you need in the form on the left. Give it a name and describe what it should do. The AI will generate a working web application in 1-3 minutes. Use the <strong>Quick Templates</strong> at the bottom for common ship applications.</span>
+        <span>Start with a simple brief, then iterate with the AI. Select an app from the library, ask for layout, functionality, or color changes, and WarClaw will rebuild that app around your latest direction.</span>
       </div>
+      <div id="app-factory-layout" style="flex:1;display:grid;overflow:hidden;">
+        <div id="app-library-panel">
+          <div class="card-title">App Library</div>
+          <div class="text-muted" style="font-size:11px;line-height:1.6;margin-top:8px;margin-bottom:14px;">
+            Pick the app you want to refine. The studio on the right stays focused on the selected app.
+          </div>
+          <div id="app-list-panel">
+            <div class="empty-state" id="apps-empty">
+              <div class="empty-icon">⬡</div>
+              <div class="empty-title">No apps generated yet</div>
+              <div class="empty-sub">Describe a ship application on the left and create the first version. After that, refine it conversationally in the studio.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="app-studio-panel">
+          <div class="app-studio-header">
+            <div>
+              <div class="card-title">Iteration Studio</div>
+              <div id="app-studio-subtitle" class="text-muted" style="font-size:11px;margin-top:6px;">Select an app to review and refine it with the AI.</div>
+            </div>
+            <div class="app-studio-actions">
+              <button class="btn" id="app-studio-focus-btn" onclick="toggleAppStudioFocus()">Focus Chat</button>
+              <button class="btn" id="app-studio-open-btn" onclick="launchSelectedApp()" disabled>Open</button>
+              <button class="btn" id="app-studio-code-btn" onclick="openSelectedAppCode()" disabled>Code</button>
+            </div>
+          </div>
+
+          <div class="app-iteration-thread" id="app-iteration-thread"></div>
+
+          <div class="app-iteration-composer">
+            <label for="app-iteration-input">Tell the AI what to change</label>
+            <textarea id="app-iteration-input" rows="4" placeholder="e.g. Make the layout more compact, move the summary cards to the top, and switch to a muted steel-blue color scheme."></textarea>
+            <div class="app-iteration-actions">
+              <button class="btn btn-primary" id="app-iterate-btn">Refine Selected App</button>
+              <button class="btn" id="app-use-selected-btn">Load Selected Into Brief</button>
+            </div>
+            <div class="text-muted" style="font-size:11px;line-height:1.6;">
+              Ask for layout, workflow, widgets, labels, density, tone, color direction, or operational emphasis.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="wc-modal-overlay" id="app-builder-drawer">
+      <div class="wc-modal app-builder-drawer-panel">
+        <div class="wc-modal-header">
+          <div>
+            <div class="wc-modal-title" id="app-builder-drawer-title">Start With A Brief</div>
+            <div class="text-muted" style="font-size:11px;line-height:1.6;margin-top:6px;">
+              Create a starting version here, then iterate in the studio with natural language requests.
+            </div>
+          </div>
+          <button class="wc-modal-close" onclick="closeAppBuilderDrawer()">&#x2715;</button>
+        </div>
+        <div class="wc-modal-body">
+          <div id="app-create-panel">
+            <div class="form-group">
+              <label>App Name</label>
+              <input type="text" id="app-name-input" placeholder="e.g. Navigation Dashboard" />
+            </div>
+
+            <div class="form-group">
+              <label>What should this app do?</label>
+              <textarea id="app-desc-input" placeholder="e.g. Show live GPS position, heading, and depth from the NMEA feed..." rows="4"></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>Integration Context <span style="font-size:10px;text-transform:none;letter-spacing:0;">(optional)</span></label>
+              <textarea id="app-context-input"
+                placeholder="e.g. NMEA at 192.168.1.10:10110, MODBUS at 192.168.1.20:502"
+                rows="3"></textarea>
+            </div>
+
+            <button class="btn btn-primary" id="gen-app-btn" style="width:100%;justify-content:center;padding:10px;font-size:13px;">
+              ⚡ Create Starting Version
+            </button>
+            <button class="btn" id="app-edit-cancel-btn" style="width:100%;justify-content:center;padding:10px;font-size:12px;margin-top:8px;display:none;">
+              Cancel Editing
+            </button>
+
+            <div class="progress-bar" style="margin-top:10px;">
+              <div class="progress-fill" id="gen-progress-fill" style="width:0%;"></div>
+            </div>
+
+            <div id="gen-status" class="text-muted" style="font-size:11px;margin-top:8px;min-height:16px;"></div>
+            <div id="gen-eta" class="text-muted" style="font-size:10px;margin-top:4px;min-height:14px;"></div>
+
+            <div style="margin-top:20px;">
+              <div class="card-title">Quick Templates</div>
+              <div id="app-templates" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="wc-modal-overlay" id="lan-help-modal">
+      <div class="wc-modal" style="max-width:640px;">
+        <div class="wc-modal-header">
+          <div class="wc-modal-title">LAN Monitor Guide</div>
+          <button class="wc-modal-close" onclick="closeLanHelp()">&#x2715;</button>
+        </div>
+        <div class="wc-modal-body">
+          <div class="help-feature">
+            <div class="help-h3">What It Does</div>
+            <p class="help-p">Scans the detected subnet from this machine, probes common operational ports, identifies likely services, and recommends useful follow-on apps.</p>
+          </div>
+          <div class="help-feature">
+            <div class="help-h3">How To Use It</div>
+            <p class="help-p">Leave the network field blank to auto-detect the connected subnet, or enter a CIDR manually. Add extra ports as a comma-separated list for devices that use nonstandard ports, then click <strong>Scan LAN</strong>.</p>
+          </div>
+          <div class="help-feature">
+            <div class="help-h3">What You’ll See</div>
+            <p class="help-p">The results panel shows the connected network name when available, the interface used, the probed ports, discovered hosts, open services, protocol hints, and AI-generated recommendations.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="wc-modal-overlay" id="traffic-help-modal">
+      <div class="wc-modal" style="max-width:660px;">
+        <div class="wc-modal-header">
+          <div class="wc-modal-title">Traffic Monitor Guide</div>
+          <button class="wc-modal-close" onclick="closeTrafficHelp()">&#x2715;</button>
+        </div>
+        <div class="wc-modal-body">
+          <div class="help-feature">
+            <div class="help-h3">What It Does</div>
+            <p class="help-p">Captures live traffic visible to this machine, groups it into conversations, builds a topology diagram, and decodes readable payloads when possible.</p>
+          </div>
+          <div class="help-feature">
+            <div class="help-h3">How To Use It</div>
+            <p class="help-p">Optionally filter capture by port. <strong>Include ports</strong> keeps only traffic touching those ports. <strong>Exclude ports</strong> removes traffic touching those ports. Then click <strong>Start Capture</strong>.</p>
+          </div>
+          <div class="help-feature">
+            <div class="help-h3">Network Name</div>
+            <p class="help-p">Traffic Monitor shows the connected network label from the most recent LAN scan. Run LAN Monitor first if you want the network or SSID shown alongside live capture stats.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── REPORTS ─────────────────────────────────────────────── -->
+    <div class="view" id="view-reports">
+      <div class="view-header">
+        <span class="nav-icon">▤</span>
+        <span class="view-title">Reports</span>
+        <span class="view-subtitle">Operational summaries and watch-ready outputs</span>
+      </div>
+
+      <div class="view-help-bar">
+        <span class="help-icon">?</span>
+        <span>Generate report-ready operational summaries from the mission log, agents, generated apps, and recent system activity. Start with the daily OPORD summary, then adjust the focus prompt for your watch or command need.</span>
+      </div>
+
       <div style="flex:1;display:grid;grid-template-columns:340px 1fr;overflow:hidden;">
-
         <div id="app-create-panel">
-          <div class="card-title">Create New App</div>
+          <div class="card-title">Generate Report</div>
 
           <div class="form-group">
-            <label>App Name</label>
-            <input type="text" id="app-name-input" placeholder="e.g. Navigation Dashboard" />
+            <label>Report Type</label>
+            <select id="report-template-select"></select>
           </div>
 
           <div class="form-group">
-            <label>What should this app do?</label>
-            <textarea id="app-desc-input" placeholder="e.g. Show live GPS position, heading, and depth from the NMEA feed..." rows="4"></textarea>
+            <label>Focus</label>
+            <textarea id="report-focus-input" rows="4" placeholder="Optional focus, e.g. bridge systems, next watch turnover, engineering posture, mission summary."></textarea>
           </div>
 
-          <div class="form-group">
-            <label>Integration Context <span style="font-size:10px;text-transform:none;letter-spacing:0;">(optional)</span></label>
-            <textarea id="app-context-input"
-              placeholder="e.g. NMEA at 192.168.1.10:10110, MODBUS at 192.168.1.20:502"
-              rows="3"></textarea>
-          </div>
-
-          <button class="btn btn-primary" id="gen-app-btn" style="width:100%;justify-content:center;padding:10px;font-size:13px;">
-            ⚡ Generate App
+          <button class="btn btn-primary" id="report-generate-btn" style="width:100%;justify-content:center;padding:10px;font-size:13px;">
+            ▤ Generate Report
           </button>
 
           <div class="progress-bar" style="margin-top:10px;">
-            <div class="progress-fill" id="gen-progress-fill" style="width:0%;"></div>
+            <div class="progress-fill" id="report-progress-fill" style="width:0%;"></div>
           </div>
-
-          <div id="gen-status" class="text-muted" style="font-size:11px;margin-top:8px;min-height:16px;"></div>
-
-          <div style="margin-top:20px;">
-            <div class="card-title">Quick Templates</div>
-            <div id="app-templates" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
-          </div>
+          <div id="report-status" class="text-muted" style="font-size:11px;margin-top:8px;min-height:16px;"></div>
+          <div id="report-eta" class="text-muted" style="font-size:10px;margin-top:4px;min-height:14px;"></div>
         </div>
 
-        <div id="app-list-panel">
-          <div class="empty-state" id="apps-empty">
-            <div class="empty-icon">⬡</div>
-            <div class="empty-title">No apps generated yet</div>
-            <div class="empty-sub">Describe a ship application on the left — navigation dashboard, sensor viewer, AIS tracker — and AI builds and deploys it in seconds.</div>
+        <div id="reports-panel">
+          <div class="card" style="height:100%;overflow-y:auto;">
+            <div class="card-title">Latest Report</div>
+            <div id="report-output" class="report-output" style="margin-top:10px;">
+              <div class="text-muted">No report generated yet.</div>
+            </div>
           </div>
         </div>
-
       </div>
     </div>
 
@@ -430,11 +606,12 @@
     <!-- ── AGENTS ─────────────────────────────────────────────── -->
     <div class="view" id="view-agents">
       <div class="view-header">
-        <span class="nav-icon">◉</span>
+        <span class="nav-icon">&#x25C9;</span>
         <span class="view-title">Agents</span>
-        <span class="view-subtitle">Autonomous monitoring agents for ship systems</span>
+        <span class="view-subtitle">Create, deploy, and track autonomous monitoring agents</span>
         <div class="view-actions">
-          <button class="btn btn-primary" id="agents-recommend-btn">◉ Auto-Recommend</button>
+          <button class="btn btn-primary" onclick="showAgentCreator()">+ Create Agent</button>
+          <button class="btn" id="agents-recommend-btn">Auto-Recommend</button>
         </div>
       </div>
 
@@ -444,13 +621,13 @@
         <div id="agents-recommend-panel" style="border-right:1px solid var(--border);padding:16px;overflow-y:auto;background:var(--bg-secondary);">
           <div class="card-title">Recommendations</div>
           <div style="font-size:11px;color:var(--text-muted);line-height:1.7;margin-bottom:12px;">
-            Click <strong style="color:var(--text-secondary);">Auto-Recommend</strong> to scan the LAN and get agent suggestions matched to your ship's systems.
+            Click <strong style="color:var(--text-secondary);">Auto-Recommend</strong> to scan the LAN, or <strong style="color:var(--text-secondary);">+ Create Agent</strong> to build a custom one.
           </div>
           <div id="agents-recommendations">
             <div class="empty-state" style="height:200px;">
-              <div class="empty-icon">◉</div>
+              <div class="empty-icon">&#x25C9;</div>
               <div class="empty-title">No recommendations yet</div>
-              <div class="empty-sub">Click <strong>Auto-Recommend</strong> — WarClaw scans the LAN and suggests agents matched to your ship's systems.</div>
+              <div class="empty-sub">Click <strong>Auto-Recommend</strong> to scan the LAN and get agent suggestions, or create your own custom agent.</div>
             </div>
           </div>
         </div>
@@ -460,15 +637,140 @@
           <div class="card-title">Deployed Agents</div>
           <div id="agents-list" style="display:flex;flex-direction:column;gap:10px;margin-top:8px;">
             <div class="empty-state" style="height:240px;">
-              <div class="empty-icon">◉</div>
+              <div class="empty-icon">&#x25C9;</div>
               <div class="empty-title">No agents deployed</div>
-              <div class="empty-sub">Agents run 24/7 — monitoring NMEA feeds, MODBUS registers, and network activity. They alert on anomalies and log all events.</div>
-              <button class="btn btn-primary" style="margin-top:12px;padding:8px 20px;" onclick="autoRecommend()">◉ Auto-Recommend Agents</button>
-              <div style="font-size:10px;color:var(--text-muted);margin-top:8px;letter-spacing:0.5px;">Requires a LAN scan first</div>
+              <div class="empty-sub">Agents run 24/7 monitoring NMEA feeds, MODBUS registers, and network activity. Create a custom agent or use Auto-Recommend.</div>
+              <div style="display:flex;gap:8px;margin-top:12px;">
+                <button class="btn btn-primary" onclick="showAgentCreator()">+ Create Agent</button>
+                <button class="btn" onclick="autoRecommend()">Auto-Recommend</button>
+              </div>
             </div>
           </div>
         </div>
 
+      </div>
+    </div>
+
+    <!-- ── AGENT CREATOR MODAL ────────────────────────────────── -->
+    <div class="wc-modal-overlay" id="agent-creator-modal">
+      <div class="wc-modal" style="max-width:520px;">
+        <div class="wc-modal-header">
+          <div class="wc-modal-title">Create Agent</div>
+          <button class="wc-modal-close" onclick="hideAgentCreator()">&#x2715;</button>
+        </div>
+        <div class="wc-modal-body">
+          <div class="form-group">
+            <label>Agent Type</label>
+            <select id="agent-creator-type" style="width:100%;padding:8px;font-size:13px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;">
+              <option value="custom">Custom Agent</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Agent Name</label>
+            <input type="text" id="agent-creator-name" placeholder="e.g. Bridge Nav Monitor" />
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <textarea id="agent-creator-desc" rows="2" placeholder="What should this agent monitor?"></textarea>
+          </div>
+          <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div>
+              <label>Target Host</label>
+              <input type="text" id="agent-creator-host" placeholder="0.0.0.0" />
+            </div>
+            <div>
+              <label>Target Port</label>
+              <input type="number" id="agent-creator-port" placeholder="0" />
+            </div>
+          </div>
+          <div id="agent-creator-custom-fields">
+            <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+              <div>
+                <label>Icon</label>
+                <input type="text" id="agent-creator-icon" placeholder="&#x2B21;" maxlength="2" />
+              </div>
+              <div>
+                <label>Priority</label>
+                <select id="agent-creator-priority" style="width:100%;padding:6px;font-size:12px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;">
+                  <option value="critical">Critical</option>
+                  <option value="high">High</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
+              <div>
+                <label>Category</label>
+                <input type="text" id="agent-creator-category" placeholder="custom" />
+              </div>
+            </div>
+          </div>
+          <div id="agent-creator-config" style="margin-top:4px;"></div>
+        </div>
+        <div class="wc-modal-footer">
+          <button class="btn" onclick="hideAgentCreator()">Cancel</button>
+          <button class="btn btn-primary" id="agent-creator-deploy-btn" onclick="deployCustomAgent()">Deploy &amp; Start</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── AGENT CONFIG MODAL ─────────────────────────────────── -->
+    <div class="wc-modal-overlay" id="agent-config-modal">
+      <div class="wc-modal" style="max-width:440px;">
+        <div class="wc-modal-header">
+          <div class="wc-modal-title" id="agent-config-title">Configure Agent</div>
+          <button class="wc-modal-close" onclick="hideAgentConfig()">&#x2715;</button>
+        </div>
+        <input type="hidden" id="agent-config-id" />
+        <div class="wc-modal-body" id="agent-config-fields">
+        </div>
+        <div class="wc-modal-footer">
+          <button class="btn" onclick="hideAgentConfig()">Cancel</button>
+          <button class="btn btn-primary" onclick="saveAgentConfig()">Save Config</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CODE EDITOR MODAL ──────────────────────────────────── -->
+    <div class="wc-modal-overlay" id="code-editor-modal">
+      <div class="wc-modal code-editor-modal-size">
+        <div class="wc-modal-header">
+          <div class="wc-modal-title" id="code-editor-title">Code Editor</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-primary code-editor-save-btn" id="code-editor-save-btn" onclick="saveEditorFile()">Save</button>
+            <button class="btn" onclick="previewEditorApp()">Preview</button>
+            <button class="wc-modal-close" onclick="closeCodeEditor()">&#x2715;</button>
+          </div>
+        </div>
+        <div class="code-editor-tabs" id="code-editor-tabs"></div>
+        <div class="code-editor-body">
+          <div class="code-editor-lines" id="code-editor-lines">1</div>
+          <textarea class="code-editor-textarea" id="code-editor-textarea"
+                    spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+        </div>
+        <div class="code-editor-status">
+          <span id="code-editor-file-status">No file loaded</span>
+          <span style="margin-left:auto;font-size:10px;color:var(--text-muted);">Ctrl+S to save | Tab for indent</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── APP DELETE MODAL ───────────────────────────────────── -->
+    <div class="wc-modal-overlay" id="app-delete-modal">
+      <div class="wc-modal" style="max-width:460px;">
+        <div class="wc-modal-header">
+          <div class="wc-modal-title">Delete App</div>
+          <button class="wc-modal-close" onclick="closeDeleteAppModal()">&#x2715;</button>
+        </div>
+        <div class="wc-modal-body">
+          <div class="text-muted" style="font-size:12px;line-height:1.7;">
+            This will permanently delete the generated app and its workspace.
+          </div>
+          <div id="app-delete-modal-target" style="margin-top:14px;font-family:var(--font-mono);font-size:12px;color:var(--text-primary);word-break:break-word;"></div>
+        </div>
+        <div class="wc-modal-footer">
+          <button class="btn" onclick="closeDeleteAppModal()">Cancel</button>
+          <button class="btn btn-danger" id="app-delete-confirm-btn" onclick="confirmDeleteApp()">Delete App</button>
+        </div>
       </div>
     </div>
 
@@ -479,8 +781,17 @@
         <span class="view-title">Traffic Monitor</span>
         <span class="view-subtitle">See what data is flowing on this LAN in real time</span>
         <div class="view-actions">
+          <input type="text" id="traffic-include-ports-input"
+            placeholder="Include ports: 10110,502"
+            style="width:200px;height:32px;padding:4px 10px;font-size:12px;" />
+          <input type="text" id="traffic-exclude-ports-input"
+            placeholder="Exclude ports: 53,123"
+            style="width:200px;height:32px;padding:4px 10px;font-size:12px;" />
+          <button class="btn" onclick="openTrafficHelp()">Help</button>
           <button class="btn btn-primary" id="traffic-start-btn" onclick="startTrafficCapture()">▶ Start Capture</button>
           <button class="btn btn-danger" id="traffic-stop-btn" onclick="stopTrafficCapture()" style="display:none;">■ Stop</button>
+          <button class="btn" id="traffic-export-btn">↓ Snapshot</button>
+          <button class="btn" id="traffic-brief-btn">⇣ Brief</button>
           <button class="btn" id="traffic-analyze-btn" onclick="analyzeTraffic()">◈ AI Analysis</button>
         </div>
       </div>
@@ -489,12 +800,52 @@
 
         <!-- Left: Live Traffic Feed -->
         <div style="overflow-y:auto;display:flex;flex-direction:column;">
+          <div style="padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg-secondary);">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <div class="card-title">Network Diagram</div>
+                <div class="text-muted" id="traffic-diagram-subtitle" style="font-size:11px;margin-top:4px;">Service-to-service paths derived from observed traffic and the last LAN scan</div>
+              </div>
+              <div class="traffic-diagram-controls">
+                <button class="btn" id="traffic-zoom-out-btn">−</button>
+                <button class="btn" id="traffic-reset-view-btn">Reset</button>
+                <button class="btn" id="traffic-zoom-in-btn">+</button>
+              </div>
+            </div>
+            <div id="traffic-topology" style="margin-top:12px;height:220px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:rgba(255,255,255,0.02);">
+              <div class="text-muted" style="font-size:11px;padding:16px;text-align:center;">Run a LAN scan or start capture to build the network diagram</div>
+            </div>
+            <div id="traffic-focus-panel" style="margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,0.02);">
+              <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;">
+                <div>
+                  <div class="card-title">Path Focus</div>
+                  <div id="traffic-focus-label" class="text-muted" style="font-size:11px;margin-top:4px;">No path selected.</div>
+                </div>
+                <button class="btn" id="traffic-clear-focus-btn">Clear Focus</button>
+              </div>
+              <div id="traffic-focus-meta" class="text-muted" style="font-size:11px;margin-top:10px;">Select a conversation to isolate its traffic in the live feed.</div>
+            </div>
+            <div id="traffic-node-panel" style="margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,0.02);">
+              <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;">
+                <div>
+                  <div class="card-title">Node Inspection</div>
+                  <div id="traffic-node-label" class="text-muted" style="font-size:11px;margin-top:4px;">No node selected.</div>
+                </div>
+                <button class="btn" id="traffic-clear-node-btn">Clear Node</button>
+              </div>
+              <div id="traffic-node-meta" class="text-muted" style="font-size:11px;margin-top:10px;">Click a node to inspect related traffic, service roles, and decoded payloads.</div>
+              <div id="traffic-node-traffic" style="margin-top:12px;"></div>
+            </div>
+          </div>
           <div id="traffic-stats-bar" style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:20px;font-size:11px;color:var(--text-muted);">
             <span>Status: <strong id="traffic-status" style="color:var(--text-secondary);">STOPPED</strong></span>
+            <span>Network: <strong id="traffic-network-name">Unknown</strong></span>
             <span>Packets: <strong id="traffic-pkt-count">0</strong></span>
             <span>Bytes: <strong id="traffic-byte-count">0</strong></span>
             <span>Conversations: <strong id="traffic-conv-count">0</strong></span>
+            <span>Snapshot: <strong id="traffic-active-snapshot">Live</strong></span>
           </div>
+          <div id="traffic-status-detail" style="padding:0 16px 12px;color:var(--text-muted);font-size:11px;border-bottom:1px solid var(--border);">Waiting for a LAN scan or traffic capture.</div>
 
           <div id="traffic-feed" style="flex:1;overflow-y:auto;padding:8px 16px;font-family:var(--font-mono);font-size:11px;">
             <div class="empty-state" id="traffic-empty">
@@ -513,8 +864,27 @@
             <div class="card-title">Who's Talking to Who</div>
             <div class="text-muted" style="font-size:11px;margin-top:4px;">Active conversations on this LAN</div>
           </div>
+          <div style="padding:16px;border-bottom:1px solid var(--border);">
+            <div class="card-title">Saved Snapshots</div>
+            <div class="text-muted" style="font-size:11px;margin-top:4px;">Watch handover / saved operating pictures</div>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <button class="btn btn-primary" id="traffic-save-snapshot-btn">Save</button>
+              <button class="btn" id="traffic-live-btn">Live</button>
+              <button class="btn" id="traffic-refresh-snapshots-btn">Refresh</button>
+            </div>
+            <div id="traffic-snapshots" style="margin-top:12px;max-height:180px;overflow-y:auto;"></div>
+          </div>
           <div id="traffic-conversations" style="flex:1;overflow-y:auto;padding:8px;">
             <div class="text-muted" style="font-size:11px;padding:16px;text-align:center;">Start capture to see conversations</div>
+          </div>
+          <div style="border-top:1px solid var(--border);padding:16px;">
+            <div class="card-title">Traffic Advisor</div>
+            <div class="text-muted" style="font-size:11px;margin-top:4px;">Continuous interception and operational recommendations</div>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <button class="btn btn-primary" id="traffic-advisor-btn">⬡ Deploy Advisor</button>
+              <button class="btn" id="traffic-recommend-btn">↻ Refresh</button>
+            </div>
+            <div id="traffic-recommendations" style="margin-top:12px;font-size:12px;line-height:1.7;color:var(--text-secondary);max-height:220px;overflow-y:auto;"></div>
           </div>
           <div id="traffic-ai-panel" style="border-top:1px solid var(--border);padding:16px;display:none;">
             <div class="card-title">AI Analysis</div>
@@ -605,7 +975,12 @@
 
           <div class="help-feature">
             <h3 class="help-h3">⬢ App Factory</h3>
-            <p class="help-p">Describe any app you need in plain English, and the AI builds it for you. The app becomes a live web page accessible from any device on the ship's LAN. Example: "Show live GPS position and heading on a map" or "Display engine room temperature and pressure gauges".</p>
+            <p class="help-p">Describe an operational workspace you need in plain English, and WarClaw assembles a reliable live dashboard around the ship data it already knows how to expose. The result becomes a live web page accessible from any device on the ship's LAN.</p>
+          </div>
+
+          <div class="help-feature">
+            <h3 class="help-h3">▤ Reports</h3>
+            <p class="help-p">Generate summaries such as a daily OPORD-style report, watch handover brief, or network posture report. These are built from mission events, agents, generated apps, and recent operator activity.</p>
           </div>
 
           <div class="help-feature">
@@ -695,6 +1070,7 @@
 <script src="/static/js/agents.js"></script>
 <script src="/static/js/traffic.js"></script>
 <script src="/static/js/events.js"></script>
+<script src="/static/js/reports.js"></script>
 
 <script>
 // ── Show/hide no-model banner based on AI status ────────────────

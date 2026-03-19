@@ -19,8 +19,29 @@ log = logging.getLogger("warclaw.lan")
 router = APIRouter(prefix="/api/lan", tags=["lan"])
 
 
+def _parse_ports(ports: Optional[str]) -> list[int]:
+    if not ports:
+        return []
+    values: list[int] = []
+    for raw in ports.split(","):
+        token = raw.strip()
+        if not token:
+            continue
+        try:
+            port = int(token)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid port value: {token}")
+        if not 1 <= port <= 65535:
+            raise HTTPException(status_code=400, detail=f"Port out of range: {port}")
+        values.append(port)
+    return values
+
+
 @router.get("/scan")
-async def lan_scan(network: Optional[str] = Query(None, description="CIDR network e.g. 192.168.1.0/24")):
+async def lan_scan(
+    network: Optional[str] = Query(None, description="CIDR network e.g. 192.168.1.0/24"),
+    ports: Optional[str] = Query(None, description="Optional comma-separated extra ports, e.g. 1883,47808"),
+):
     """
     Perform a full LAN discovery scan.
     Finds hosts, identifies services, and returns integration recommendations.
@@ -32,9 +53,11 @@ async def lan_scan(network: Optional[str] = Query(None, description="CIDR networ
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid CIDR notation: {network}")
 
-    log.info("LAN scan requested, network=%s", network or "auto-detect")
+    extra_ports = _parse_ports(ports)
+    log.info("LAN scan requested, network=%s, extra_ports=%s", network or "auto-detect", extra_ports or "default")
     log_event("info", "lan", f"LAN scan started on {network or 'auto-detect'}")
-    result = await scan_network(network=network)
+    result = await scan_network(network=network, extra_ports=extra_ports)
+    global _last_scan_result
 
     log_event(
         "success", "lan",
@@ -42,8 +65,11 @@ async def lan_scan(network: Optional[str] = Query(None, description="CIDR networ
         {"network": result.network, "hosts_up": result.hosts_up, "duration_s": result.scan_duration_s},
     )
 
-    return {
+    payload = {
         "network": result.network,
+        "interface": result.interface,
+        "network_name": result.network_name,
+        "probe_ports": result.probe_ports,
         "hosts_scanned": result.hosts_scanned,
         "hosts_up": result.hosts_up,
         "scan_duration_s": result.scan_duration_s,
@@ -67,13 +93,18 @@ async def lan_scan(network: Optional[str] = Query(None, description="CIDR networ
             for h in result.discovered
         ],
     }
+    _last_scan_result = payload
+    return payload
 
 
 _last_scan_result: Optional[dict] = None
 
 
 @router.get("/scan/export")
-async def export_scan(network: Optional[str] = Query(None)):
+async def export_scan(
+    network: Optional[str] = Query(None),
+    ports: Optional[str] = Query(None, description="Optional comma-separated extra ports"),
+):
     """Run a LAN scan and return results as a downloadable JSON file."""
     if network:
         try:
@@ -81,10 +112,14 @@ async def export_scan(network: Optional[str] = Query(None)):
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid CIDR notation: {network}")
 
-    result = await scan_network(network=network)
+    result = await scan_network(network=network, extra_ports=_parse_ports(ports))
+    global _last_scan_result
     payload = {
         "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "network": result.network,
+        "interface": result.interface,
+        "network_name": result.network_name,
+        "probe_ports": result.probe_ports,
         "hosts_scanned": result.hosts_scanned,
         "hosts_up": result.hosts_up,
         "scan_duration_s": result.scan_duration_s,
@@ -104,11 +139,17 @@ async def export_scan(network: Optional[str] = Query(None)):
             for h in result.discovered
         ],
     }
+    _last_scan_result = payload
     filename = f"warclaw-scan-{result.network.replace('/', '_')}.json"
     return JSONResponse(
         content=payload,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/last")
+async def get_last_scan():
+    return {"scan": _last_scan_result}
 
 
 class ModbusScanRequest(BaseModel):

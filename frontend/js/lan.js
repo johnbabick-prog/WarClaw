@@ -4,6 +4,18 @@
 
 let lanStreamWs = null;
 
+function openLanHelp() {
+  const modal = document.getElementById('lan-help-modal');
+  if (modal) modal.classList.add('visible');
+}
+window.openLanHelp = openLanHelp;
+
+function closeLanHelp() {
+  const modal = document.getElementById('lan-help-modal');
+  if (modal) modal.classList.remove('visible');
+}
+window.closeLanHelp = closeLanHelp;
+
 function protocolClass(protocol) {
   if (protocol.includes('nmea') || protocol.includes('iec')) return 'nmea';
   if (protocol.includes('modbus')) return 'modbus';
@@ -97,9 +109,16 @@ function renderRecommendations(recs) {
 
 async function runLanScan() {
   const networkInput = document.getElementById('lan-network-input').value.trim();
+  const portsInput = document.getElementById('lan-ports-input').value.trim();
   const btn = document.getElementById('lan-scan-btn');
   const hostList = document.getElementById('lan-host-list');
   const sidebar = document.getElementById('lan-scan-stats');
+  const progress = createProgressController('lan-progress-fill', 'lan-status', 'lan-eta', {
+    message: 'Preparing network discovery sweep...',
+    etaSeconds: 30,
+    intervalMs: 900,
+    step: 3.2,
+  });
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> SCANNING...';
@@ -107,17 +126,32 @@ async function runLanScan() {
   document.getElementById('lan-recs').innerHTML = '';
 
   try {
-    const url = networkInput ? `/api/lan/scan?network=${encodeURIComponent(networkInput)}` : '/api/lan/scan';
+    progress.set(networkInput ? `Scanning ${networkInput} for responsive hosts and services...` : 'Auto-detecting subnet and scanning for responsive hosts...', 12);
+    const params = new URLSearchParams();
+    if (networkInput) params.set('network', networkInput);
+    if (portsInput) params.set('ports', portsInput);
+    const url = params.toString() ? `/api/lan/scan?${params.toString()}` : '/api/lan/scan';
     const result = await API.get(url);
     State.lanScanResult = result;
+    window.dispatchEvent(new CustomEvent('warclaw:lan-scan-updated', { detail: result }));
 
     // Stats
     sidebar.innerHTML = `
       <div class="card-title">SCAN RESULTS</div>
       <div class="hw-info-row">
+        <div class="hw-info-label">Connected Via</div>
+        <div class="hw-info-value">${result.network_name || result.interface || 'Unknown network'}</div>
+      </div>
+      <div class="hw-info-row">
         <div class="hw-info-label">Network</div>
         <div class="hw-info-value mono">${result.network}</div>
       </div>
+      ${result.interface ? `
+      <div class="hw-info-row">
+        <div class="hw-info-label">Interface</div>
+        <div class="hw-info-value mono">${result.interface}</div>
+      </div>
+      ` : ''}
       <div class="hw-info-row">
         <div class="hw-info-label">Scanned</div>
         <div class="hw-info-value">${result.hosts_scanned} hosts</div>
@@ -129,6 +163,10 @@ async function runLanScan() {
       <div class="hw-info-row">
         <div class="hw-info-label">Duration</div>
         <div class="hw-info-value">${result.scan_duration_s}s</div>
+      </div>
+      <div class="hw-info-row">
+        <div class="hw-info-label">Probe Ports</div>
+        <div class="hw-info-value mono" style="font-size:10px;">${(result.probe_ports || []).join(', ')}</div>
       </div>
     `;
 
@@ -146,13 +184,16 @@ async function runLanScan() {
     // Recommendations
     document.getElementById('lan-recs').innerHTML = renderRecommendations(result.recommendations);
 
+    progress.complete(`Scan complete: ${result.hosts_up} host(s) on ${result.network} in ${result.scan_duration_s}s.`);
     toast(`Found ${result.hosts_up} hosts on ${result.network}`, 'success');
   } catch (e) {
     hostList.innerHTML = `<div id="lan-empty"><div class="empty-icon">✗</div><div class="text-red">${e.message}</div></div>`;
+    progress.fail('Scan failed: ' + e.message);
     toast('Scan failed: ' + e.message, 'error');
   } finally {
     btn.disabled = false;
     btn.innerHTML = '⬡ SCAN LAN';
+    progress.reset();
   }
 }
 
@@ -240,10 +281,11 @@ function promptCreateAppFromHint(ip, hint) {
 
 function promptCreateAppFromRec(rec) {
   showView('apps');
-  // Extract a short name from the recommendation
-  const name = rec.split('—')[0].replace('Create a', '').replace('create a', '').trim().slice(0, 40);
-  document.getElementById('app-name-input').value = name || 'Ship App';
-  document.getElementById('app-desc-input').value = rec;
+  const blueprint = typeof inferAppBlueprint === 'function'
+    ? inferAppBlueprint(rec, 'Ship App')
+    : { name: 'Ship App', description: rec };
+  document.getElementById('app-name-input').value = blueprint.name;
+  document.getElementById('app-desc-input').value = blueprint.description;
   if (State.lanScanResult) {
     const context = State.lanScanResult.hosts.map(h =>
       `${h.ip} (${h.services.map(s => `${s.port}/${s.protocol}`).join(', ')})`
@@ -266,6 +308,9 @@ function initLan() {
 
   // Enter in network input triggers scan
   document.getElementById('lan-network-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') runLanScan();
+  });
+  document.getElementById('lan-ports-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') runLanScan();
   });
 }

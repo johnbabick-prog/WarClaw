@@ -7,6 +7,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARCLAW_DIR="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$WARCLAW_DIR/.venv"
+if [ ! -f "$VENV_DIR/bin/python" ] && [ -f "$WARCLAW_DIR/venv/bin/python" ]; then
+  VENV_DIR="$WARCLAW_DIR/venv"
+fi
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'
 CYAN='\033[0;36m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -17,7 +20,24 @@ if [ ! -f "$VENV_DIR/bin/activate" ]; then
   exit 1
 fi
 
-source "$VENV_DIR/bin/activate"
+PYTHON_BIN="$VENV_DIR/bin/python"
+
+WS_BACKEND=$("$PYTHON_BIN" - <<'PY'
+import importlib.util
+if importlib.util.find_spec("websockets"):
+    print("websockets")
+elif importlib.util.find_spec("wsproto"):
+    print("wsproto")
+else:
+    print("")
+PY
+)
+
+if [ -z "$WS_BACKEND" ]; then
+  echo -e "${RED}[✗]${NC} No WebSocket backend installed in $VENV_DIR."
+  echo -e "    Run ${CYAN}./scripts/setup.sh${NC} or install ${CYAN}websockets${NC} into that environment."
+  exit 1
+fi
 
 # ── Load .env if present (allows simple config without exporting vars) ──
 if [ -f "$WARCLAW_DIR/.env" ]; then
@@ -72,9 +92,9 @@ echo ""
 cd "$WARCLAW_DIR"
 
 # ── Start uvicorn ────────────────────────────────────────────────
-exec python -m uvicorn backend.main:app \
+exec "$PYTHON_BIN" -m uvicorn backend.main:app \
   --host "$HOST" \
   --port "$PORT" \
   --workers "$WORKERS" \
   --log-level "$LOG_LEVEL" \
-  --ws websockets
+  --ws "$WS_BACKEND"

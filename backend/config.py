@@ -14,6 +14,10 @@ MODELS_DIR = BASE_DIR / "models"
 GENERATED_APPS_DIR = BASE_DIR / "generated_apps"
 FRONTEND_DIR = BASE_DIR / "frontend"
 MISSION_LOG_PATH = BASE_DIR / "mission_log.jsonl"
+CHAT_SESSIONS_PATH = BASE_DIR / "chat_sessions.json"
+TRAFFIC_SNAPSHOTS_DIR = BASE_DIR / "traffic_snapshots"
+REMINDERS_PATH = BASE_DIR / "reminders.json"
+MODEL_SELECTION_PATH = BASE_DIR / "selected_model.json"
 
 # Server
 HOST = os.getenv("WARCLAW_HOST", "0.0.0.0")
@@ -25,6 +29,7 @@ API_KEY = os.getenv("WARCLAW_API_KEY", "")
 
 # LLM — model path is set after hardware detection or manually via env
 DEFAULT_MODEL_PATH = os.getenv("WARCLAW_MODEL", "")
+DEFAULT_MODEL_PROVIDER = os.getenv("WARCLAW_MODEL_PROVIDER", "gguf").lower()
 DEFAULT_CONTEXT_LENGTH = int(os.getenv("WARCLAW_CTX", "4096"))
 DEFAULT_THREADS = int(os.getenv("WARCLAW_THREADS", str(os.cpu_count() or 4)))
 DEFAULT_GPU_LAYERS = int(os.getenv("WARCLAW_GPU_LAYERS", "0"))  # 0 = CPU only

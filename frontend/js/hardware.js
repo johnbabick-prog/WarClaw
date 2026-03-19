@@ -58,19 +58,21 @@ async function loadHardwareView() {
 
     let modelsHtml = `<div class="card-title">Loaded Model</div>`;
     if (isReady) {
-      const name = currentModel.split('/').pop();
+      const provider = modelsData.current_provider || 'gguf';
+      const name = provider === 'gguf' ? currentModel.split('/').pop() : currentModel;
+      const persisted = modelsData.saved_model && modelsData.saved_model === currentModel && (modelsData.saved_provider || provider) === provider;
       modelsHtml += `
         <div class="model-file-item" style="border-color:var(--accent-green);">
           <span class="text-green">●</span>
           <span class="model-file-name text-green">${name}</span>
-          <span class="model-size">ACTIVE</span>
+          <span class="model-size">ACTIVE · ${provider.toUpperCase()}${persisted ? ' · DEFAULT' : ''}</span>
         </div>
       `;
     } else {
       modelsHtml += `<div class="text-amber" style="font-size:11px;margin-bottom:12px;">No model loaded</div>`;
     }
 
-    modelsHtml += `<div class="card-title" style="margin-top:16px;">Available Models</div>`;
+    modelsHtml += `<div class="card-title" style="margin-top:16px;">Local GGUF Models</div>`;
 
     if (modelsData.models.length === 0) {
       modelsHtml += `
@@ -87,8 +89,29 @@ async function loadHardwareView() {
           <span class="model-file-name" title="${m.path}">${m.name}</span>
           <span class="model-size">${m.size_mb}MB</span>
           <button class="btn btn-primary" style="font-size:10px;padding:3px 10px;flex-shrink:0;"
-            onclick="loadModel('${m.path}', ${profile.recommended_gpu_layers})">
+            onclick="loadModel('${m.path}', 'gguf', ${profile.recommended_gpu_layers})">
             LOAD
+          </button>
+        </div>
+      `).join('');
+    }
+
+    modelsHtml += `<div class="card-title" style="margin-top:16px;">Ollama Models</div>`;
+    if ((modelsData.ollama_models || []).length === 0) {
+      modelsHtml += `
+        <div class="text-muted" style="font-size:11px;line-height:1.7;">
+          No local Ollama models detected on <span class="mono" style="color:var(--text-primary);">http://127.0.0.1:11434</span>.
+        </div>
+      `;
+    } else {
+      modelsHtml += modelsData.ollama_models.map(m => `
+        <div class="model-file-item">
+          <span style="color:var(--text-muted);">◈</span>
+          <span class="model-file-name" title="${m.name}">${m.name}</span>
+          <span class="model-size">${m.size_mb ? `${m.size_mb}MB` : 'OLLAMA'}</span>
+          <button class="btn btn-primary" style="font-size:10px;padding:3px 10px;flex-shrink:0;"
+            onclick="loadModel('${m.name}', 'ollama', 0)">
+            USE
           </button>
         </div>
       `).join('');
@@ -130,16 +153,18 @@ function setHardwareStatus(message, type = 'info') {
   el.textContent = message;
 }
 
-async function loadModel(path, gpuLayers) {
-  setHardwareStatus(`Loading ${path.split('/').pop()}...`, 'info');
+async function loadModel(path, provider = 'gguf', gpuLayers = 0) {
+  const displayName = provider === 'gguf' ? path.split('/').pop() : path;
+  setHardwareStatus(`Loading ${displayName}...`, 'info');
   toast(`Loading model — this may take 30-60 seconds...`, 'info', 30000);
   try {
     const result = await API.post('/api/hardware/models/load', {
       model_path: path,
+      provider,
       n_gpu_layers: gpuLayers || 0,
     });
-    toast(`Model loaded: ${path.split('/').pop()}`, 'success');
-    setHardwareStatus(`Loaded ${path.split('/').pop()} successfully.`, 'success');
+    toast(`Model loaded: ${displayName}`, 'success');
+    setHardwareStatus(`Loaded ${displayName} successfully.`, 'success');
     State.modelReady = true;
     await loadHardwareView();
     await pollStatus();
@@ -197,7 +222,7 @@ async function uploadAndLoadManualModel() {
     }
 
     setHardwareStatus(`Found ${uploadedModel.name}. Starting model load...`, 'info');
-    await loadModel(uploadedModel.path, gpuLayers);
+    await loadModel(uploadedModel.path, 'gguf', gpuLayers);
   } catch (e) {
     setHardwareStatus(`Upload failed: ${e.message}`, 'error');
     toast('Model upload failed: ' + e.message, 'error');

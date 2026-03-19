@@ -20,7 +20,7 @@ _subscribers: list[asyncio.Queue] = []
 
 def _utc_iso() -> str:
     import datetime
-    return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def emit(level: str, category: str, message: str, data: dict | None = None) -> dict:

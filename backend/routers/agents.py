@@ -23,6 +23,10 @@ class DeployRequest(BaseModel):
     target_port: int = 0
     config: dict = {}
     name: str = ""
+    description: str = ""
+    icon: str = ""
+    category: str = ""
+    priority: str = ""
     auto_start: bool = True
 
 
@@ -123,6 +127,10 @@ async def deploy_agent(req: DeployRequest):
             target_port=req.target_port,
             config=req.config or None,
             name_override=req.name or None,
+            description=req.description or None,
+            icon=req.icon or None,
+            category=req.category or None,
+            priority=req.priority or None,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -166,6 +174,20 @@ async def remove_agent(agent_id: str):
         return {"status": "removed", "agent_id": agent_id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/{agent_id}/config")
+async def update_agent_config(agent_id: str, req: ConfigUpdateRequest):
+    """Update an agent's configuration (thresholds, intervals, etc.)."""
+    agent = agent_engine.get(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    agent.config.update(req.config)
+    agent_engine._save_state()
+    log_event("info", "system",
+              f"Agent config updated: {agent.name}",
+              {"agent_id": agent_id, "config": agent.config})
+    return agent.to_dict()
 
 
 @router.get("/{agent_id}")
